@@ -4,6 +4,19 @@ import pandas as pd
 from zipfile import ZipFile
 from collections import defaultdict
 import numpy as np
+from typing import NamedTuple
+
+
+class TimetableEvent(NamedTuple):
+    pattern_id: int
+    service_id: int
+    pattern_row: int
+    pattern_col: int
+
+
+class Timetable:
+    def __init__(self):
+        pass
 
 
 def expand_pairs(lst):
@@ -39,14 +52,39 @@ class GTFS:
     def __init__(self, zf):
         """Reads in GTFS data from a zipfile."""
 
+        if not self._is_gtfs_zip(zf):
+            raise ValueError("Error: zipfile is not a valid GTFS zip file")
+
         self.zf = zf
-        self.calendar = self._expand_service_dates(zf)
+        self.service_dates = self._expand_service_dates(zf)
         self.trips = self._read_trips(zf)
         self.stops = self._read_stops(zf)
         self.stop_times = self._read_stop_times(zf)
 
         self._augment_with_stop_patterns()
-        self.schedules = self._get_schedules()
+        #self.timetables = self._get_timetables()
+
+    @classmethod
+    def _is_gtfs_zip(cls, zf):
+        """Check that the zipfile contains the required GTFS files.
+
+        Args:
+            zf: ZipFile object
+
+        Returns:
+            True if the zipfile contains the required GTFS files, False
+            otherwise.
+        """
+
+        files = zf.namelist()
+
+        required_files = ["stops.txt", "routes.txt", "trips.txt",
+                          "stop_times.txt"]
+        for file in required_files:
+            if file not in files:
+                return False
+
+        return True
 
     def _augment_with_stop_patterns(self):
 
@@ -88,33 +126,35 @@ class GTFS:
                 stop_pattern_ids[stop_id].add(stop_pattern_id)
         self.stop_pattern_ids = dict(stop_pattern_ids)
 
-    def _get_schedules(self):
-        scheds = {}
+    def _get_timetables(self):
+        timetables = {}
 
         pattern_groups = self.stop_times.sort_values(["trip_id",
                                                       "stop_sequence"]) \
                                         .groupby(["stop_pattern_id",
                                                   "service_id"])
 
-        for (stop_pattern_id, service_id), sched in pattern_groups:
+        for (stop_pattern_id, service_id), stoptimes in pattern_groups:
 
-            sched = [(trip_id, trip[["arrival_time", "departure_time"]].values)
-                     for trip_id, trip in sched.groupby("trip_id")]
+            # convert dataframe to list of (trip_id, (list of (arrival_time,
+            # depature_time) tuples))
+            trips = [(trip_id, trip[["arrival_time", "departure_time"]].values)
+                     for trip_id, trip in stoptimes.groupby("trip_id")]
 
             # sort trips ascending by first arrival time
-            sched.sort(key=lambda x: x[1][0, 0])
-            trip_ids = [x[0] for x in sched]
-            sched = [x[1] for x in sched]
-            sched = np.stack(sched)  # (n_trips, n_stops, 2)
+            trips.sort(key=lambda x: x[1][0, 0])
+            trip_ids = [x[0] for x in trips]
+            timetable = [x[1] for x in trips]
+            timetable = np.stack(timetable)  # (n_trips, n_stops, 2)
 
             # ensure that the time increases along the trip dimension
-            assert (np.diff(sched, axis=0) > 0).all()
+            assert (np.diff(timetable, axis=0) > 0).all()
             # ensure that the time increases along the stop dimension
-            assert (np.diff(sched, axis=1) > 0).all()
+            assert (np.diff(timetable, axis=1) > 0).all()
 
-            scheds[(stop_pattern_id, service_id)] = (trip_ids, sched)
+            timetables[(stop_pattern_id, service_id)] = (trip_ids, timetable)
 
-        return scheds
+        return timetables
 
     def _expand_service_dates(self, zf):
         """Expands the calendar.txt and calendar_dates.txt files into a
@@ -211,68 +251,122 @@ class GTFS:
 
         return self.service_dates[date]
 
-
-class TransitGraph:
-    def __init__(self, uri):
-        self.uri = uri
-
-    def adjacent(self, node):
-        """Returns adjacent nodes along with the edge weight. Nodes are tuples
-        describing rider states, for example ('at_stop', stop_id, current_time)
-        or ('on_route', stoptime_id).
+    def get_events(self, stop_id, current_time, after=True):
+        """Returns a list of timetable events at the given stop corresponding
+        to the given time. If after is True, only returns events at or after;
+        if after is False, only returns events at or before.
 
         Args:
-            node: Node to get adjacent nodes for.
+            stop_id: Stop to get events for.
+            current_time: Time to get events for.
+            after: If True, only return events (i.e., boardings) at or after
+                the given time. If False, only return events (i.e., alightings)
+                at or before the given time.
+
+        Returns:
+            List of events at the given stop at or after the given time.
+        """
+
+        ret = []
+
+        # for each stop pattern that visits at this stop
+        for stop_pattern_id in self.stop_pattern_ids[stop_id]:
+            stop_pattern = self.stop_patterns[stop_pattern_id]
+            pattern_row = stop_pattern.index(stop_id)
+
+            if pattern_row == len(stop_pattern)-1:
+                # this is the last stop in the pattern, so there are no
+                # departures
+                continue
+
+            for service_id in self.get_service_ids(current_time.date()):
+                key = (stop_pattern_id, service_id)
+                if key not in self.timetables:
+                    continue
+
+                _, timetable = self.timetables[key]
+
+                # find the first trip that departs after the current time
+                if after:
+                    pattern_col = np.searchsorted(timetable[:, pattern_row, 1],
+                                                  current_time, side="left")
+                    if pattern_col == timetable.shape[1]:
+                        # all trips have already departed
+                        continue
+                # find the last trip that arrives before the current time
+                else:
+                    pattern_col = np.searchsorted(timetable[:, pattern_row, 1],
+                                                  current_time, side="right")
+                    if pattern_col == 0:
+                        # there is no trip that arrives before the current time
+                        continue
+
+                event = TimetableEvent(stop_pattern_id, service_id,
+                                       pattern_row, pattern_col)
+                ret.append(event)
+
+        return ret
+
+    def get_departure_time(self, event):
+        tt_key = (event.stop_pattern_id, event.service_id)
+        _, timetable = self.timetables[tt_key]
+        return timetable[event.pattern_col, event.pattern_row, 1]
+
+    def get_arrival_time(self, event):
+        tt_key = (event.stop_pattern_id, event.service_id)
+        _, timetable = self.timetables[tt_key]
+        return timetable[event.pattern_col, event.pattern_row, 0]
+
+
+class TransitGraph:
+    def __init__(self, feed):
+        self.feed = feed
+
+    def adjacent_forward(self, node):
+        """Returns adjacent nodes along with the edge weight. Nodes are tuples
+        describing rider states, for example ('at_stop', stop_id, current_time)
+        or ('departing', stop_pattern_id, pattern_row, pattern_col,
+        current_time).
+
+        Args:
+            node: Node for which to get adjacent nodes.
 
         Returns:
             List of tuples describing adjacent nodes and the edge weight.
         """
 
+        ret = []
+
         node_type = node[0]
 
         if node_type == 'at_stop':
-            # find all following stop_times at this stop
-
             _, stop_id, current_time = node
 
-    @classmethod
-    def _is_gtfs_zip(cls, zf):
-        """Check that the zipfile contains the required GTFS files.
+            for event in self.feed.get_events(stop_id, current_time,
+                                              after=True):
 
-        Args:
-            zf: ZipFile object
+                departure_time = self.feed.get_departure_time(event)
 
-        Returns:
-            True if the zipfile contains the required GTFS files, False
-            otherwise.
-        """
+                node = ('departing', event.stop_pattern_id,
+                        event.service_id, event.pattern_row,
+                        event.pattern_col, departure_time)
+                weight = departure_time - current_time
+                edge = (node, weight)
+                ret.append(edge)
 
-        files = zf.namelist()
-
-        required_files = ["stops.txt", "routes.txt", "trips.txt",
-                          "stop_times.txt"]
-        for file in required_files:
-            if file not in files:
-                return False
-
-        return True
+        return ret
 
     @classmethod
     def load(cls, filename):
+        with ZipFile(filename, "r") as zf:
+            feed = GTFS(zf)
+            ret = cls(feed)
         zf = ZipFile(filename, "r")
 
-        if not cls._is_gtfs_zip(zf):
-            print("Error: " + filename + " is not a valid GTFS zip file")
-            exit(1)
+        feed = GTFS(zf)
+        ret = cls(feed)
 
-        # get agency
-        agency = pd.read_csv(zf.open("agency.txt"))
-        print(agency)
-
-        # read in stops.txt
-        stops = pd.read_csv(zf.open("stops.txt"))
-
-        print(stops)
+        return ret
 
 
 def main():
