@@ -1,22 +1,84 @@
-from dotenv import load_dotenv
 import os
-import pandas as pd
-from zipfile import ZipFile
 from collections import defaultdict
+from typing import Hashable, NamedTuple
+from zipfile import ZipFile
+
 import numpy as np
-from typing import NamedTuple
+import pandas as pd
+from dotenv import load_dotenv
 
 
 class TimetableEvent(NamedTuple):
     pattern_id: int
     service_id: int
-    pattern_row: int
-    pattern_col: int
+    row: int  # the index of the trip
+    col: int  # the index of the stop
+    time: int  # seconds since midnight
 
 
 class Timetable:
-    def __init__(self):
-        pass
+    def __init__(self, trip_ids, stop_ids, arrival_times, departure_times):
+        self.trip_ids = trip_ids
+        self.stop_ids = stop_ids
+        self.arrival_times = arrival_times
+        self.departure_times = departure_times
+
+    def lookup_events(self, stop_id: Hashable, time: int, after: bool = True):
+        """Looks up the next event (arrival or departure) for a given stop at
+        a given time. Because a trip may visit a stop multiple times, an array
+        of events is returned.
+
+        Args:
+            stop_id: ID of the stop to lookup.
+            time: Time to lookup, in seconds since midnight.
+            after: If True, lookup the next departure event. If False,
+                lookup the previous arrival event.
+
+        Returns:
+            A tuple of table row, column, and time for each event.
+        """
+
+        ret = []
+
+        # get stop_id indices
+        stop_idxs = np.where(self.stop_ids == stop_id)[0]
+
+        for stop_idx in stop_idxs:
+            if after:
+                # if the stop_idx is the last stop, then there is no departure
+                if stop_idx == len(self.stop_ids) - 1:
+                    continue
+
+                # get the index of the first trip that is >= the time
+                trip_idx = np.searchsorted(
+                    self.departure_times[:, stop_idx], time, side="right"
+                )
+                time = self.departure_times[trip_idx, stop_idx]
+
+                # if the time is after the last departure, then there is no
+                # departure
+                if trip_idx == len(self.departure_times):
+                    continue
+
+            else:
+                # if the stop_idx is the first stop, then there is no arrival
+                if stop_idx == 0:
+                    continue
+
+                # get the index of the first trip that is <= the time
+                time_idx = np.searchsorted(
+                    self.arrival_times[:, stop_idx], time, side="left"
+                )
+                time = self.arrival_times[time_idx, stop_idx]
+
+                # if the time is before the first arrival, then there is no
+                # arrival
+                if time_idx == 0:
+                    continue
+
+            ret.append((trip_idx, stop_idx, time))
+
+        return ret
 
 
 def expand_pairs(lst):
@@ -48,6 +110,19 @@ def parse_gtfs_time(time_str: str) -> int:
     return int(h) * 3600 + int(m) * 60 + int(s)
 
 
+def seconds_since_midnight(time: pd.Timestamp) -> int:
+    """Converts a pandas Timestamp into seconds since midnight.
+
+    Args:
+        time: pandas Timestamp.
+
+    Returns:
+        Seconds since midnight.
+    """
+
+    return time.hour * 3600 + time.minute * 60 + time.second
+
+
 class GTFS:
     def __init__(self, zf):
         """Reads in GTFS data from a zipfile."""
@@ -62,7 +137,7 @@ class GTFS:
         self.stop_times = self._read_stop_times(zf)
 
         self._augment_with_stop_patterns()
-        #self.timetables = self._get_timetables()
+        self.timetables = self._get_timetables()
 
     @classmethod
     def _is_gtfs_zip(cls, zf):
@@ -78,8 +153,12 @@ class GTFS:
 
         files = zf.namelist()
 
-        required_files = ["stops.txt", "routes.txt", "trips.txt",
-                          "stop_times.txt"]
+        required_files = [
+            "stops.txt",
+            "routes.txt",
+            "trips.txt",
+            "stop_times.txt",
+        ]
         for file in required_files:
             if file not in files:
                 return False
@@ -87,12 +166,13 @@ class GTFS:
         return True
 
     def _augment_with_stop_patterns(self):
-
         # get trip_id -> stop pattern
-        trip_stop_patterns = self.stop_times.sort_values("stop_sequence") \
-                                            .groupby(["trip_id"]) \
-                                            .agg({"stop_id": tuple}) \
-                                            .to_dict(orient="index")
+        trip_stop_patterns = (
+            self.stop_times.sort_values("stop_sequence")
+            .groupby(["trip_id"])
+            .agg({"stop_id": tuple})
+            .to_dict(orient="index")
+        )
 
         # reverse to get stop_pattern -> trip_ids
         stop_pattern_trips = defaultdict(set)
@@ -101,23 +181,25 @@ class GTFS:
         stop_pattern_trips = dict(stop_pattern_trips)
 
         # create stop_pattern_id -> ordered list of stops
-        self.stop_patterns = dict(zip(range(len(stop_pattern_trips)),
-                                  stop_pattern_trips.keys()))
+        self.stop_patterns = dict(
+            zip(range(len(stop_pattern_trips)), stop_pattern_trips.keys())
+        )
 
         # create a dataframe of (stop_pattern_id, trip_id)
-        stop_pattern_id_trips = \
-            expand_pairs(zip(range(len(stop_pattern_trips)),
-                         stop_pattern_trips.values()))
-        stop_pattern_id_trips_df = \
-            pd.DataFrame(stop_pattern_id_trips,
-                         columns=["stop_pattern_id", "trip_id"])
+        stop_pattern_id_trips = expand_pairs(
+            zip(range(len(stop_pattern_trips)), stop_pattern_trips.values())
+        )
+        stop_pattern_id_trips_df = pd.DataFrame(
+            stop_pattern_id_trips, columns=["stop_pattern_id", "trip_id"]
+        )
 
         # augment the stop_times table with stop_pattern_id and service_id
-        self.stop_times = self.stop_times.merge(stop_pattern_id_trips_df,
-                                                on="trip_id")
-        self.stop_times = \
-            self.stop_times.merge(self.trips[["trip_id", "service_id"]],
-                                  on="trip_id")
+        self.stop_times = self.stop_times.merge(
+            stop_pattern_id_trips_df, on="trip_id"
+        )
+        self.stop_times = self.stop_times.merge(
+            self.trips[["trip_id", "service_id"]], on="trip_id"
+        )
 
         # create dict of stop_id -> stop_pattern_ids
         stop_pattern_ids = defaultdict(set)
@@ -129,30 +211,52 @@ class GTFS:
     def _get_timetables(self):
         timetables = {}
 
-        pattern_groups = self.stop_times.sort_values(["trip_id",
-                                                      "stop_sequence"]) \
-                                        .groupby(["stop_pattern_id",
-                                                  "service_id"])
+        def grouper_func(group):
+            """This converts a group of stop_times that share a stop_pattern_id
+            and service_id into a timetable.
 
-        for (stop_pattern_id, service_id), stoptimes in pattern_groups:
+            The timetable is a dataframe with three columns: trip_id,
+            arrival_time, and departure_time. The arrival_time and
+            departure_time columns are lists of times, one for each stop in the
+            stop_pattern. The timetable is sorted by the first arrival time in
+            the list."""
 
-            # convert dataframe to list of (trip_id, (list of (arrival_time,
-            # depature_time) tuples))
-            trips = [(trip_id, trip[["arrival_time", "departure_time"]].values)
-                     for trip_id, trip in stoptimes.groupby("trip_id")]
+            trips = (
+                group.sort_values("stop_sequence")
+                .groupby("trip_id")
+                .agg(list)[["arrival_time", "departure_time"]]
+                .sort_values(
+                    "arrival_time", key=lambda x: x.map(lambda x: x[0])
+                )
+            )
 
-            # sort trips ascending by first arrival time
-            trips.sort(key=lambda x: x[1][0, 0])
-            trip_ids = [x[0] for x in trips]
-            timetable = [x[1] for x in trips]
-            timetable = np.stack(timetable)  # (n_trips, n_stops, 2)
+            return trips
 
-            # ensure that the time increases along the trip dimension
-            assert (np.diff(timetable, axis=0) > 0).all()
-            # ensure that the time increases along the stop dimension
-            assert (np.diff(timetable, axis=1) > 0).all()
+        timetable_df = (
+            self.stop_times.groupby(["stop_pattern_id", "service_id"])
+            .apply(grouper_func)
+            .reset_index()
+        )
 
-            timetables[(stop_pattern_id, service_id)] = (trip_ids, timetable)
+        for (stop_pattern_id, service_id), timetable in timetable_df.groupby(
+            [
+                "stop_pattern_id",
+                "service_id",
+            ]
+        ):
+            key = (stop_pattern_id, service_id)
+
+            stop_ids = self.stop_patterns[stop_pattern_id]
+            trip_ids = timetable["trip_id"].tolist()
+            arrival_times = np.array(timetable["arrival_time"].values.tolist())
+            departure_times = np.array(
+                timetable["departure_time"].values.tolist()
+            )
+
+            timetable = Timetable(
+                trip_ids, stop_ids, arrival_times, departure_times
+            )
+            timetables[key] = timetable
 
         return timetables
 
@@ -173,16 +277,25 @@ class GTFS:
         # service
         if "calendar.txt" in zf.namelist():
             with zf.open("calendar.txt") as f:
-                calendar = pd.read_csv(f,
-                                       parse_dates=["start_date", "end_date"])
+                calendar = pd.read_csv(
+                    f, parse_dates=["start_date", "end_date"]
+                )
 
-            weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday",
-                        "saturday", "sunday"]
+            weekdays = [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ]
 
             def process_calendar_row(row):
                 for date in pd.date_range(row.start_date, row.end_date):
                     if row[weekdays[date.dayofweek]] == 1:
                         expanded_cal[date.date()].add(row.service_id)
+
             calendar.apply(process_calendar_row, axis=1)
 
         # for each row in calendar_dates, add or remove the service_id from
@@ -200,6 +313,7 @@ class GTFS:
                 elif row.exception_type == REMOVE_SERVICE:
                     if row.service_id in expanded_cal[row.date.date()]:
                         expanded_cal[row.date.date()].remove(row.service_id)
+
             calendar_dates.apply(process_calendar_dates_row, axis=1)
 
         return dict(expanded_cal)
@@ -223,9 +337,13 @@ class GTFS:
             raise Exception("stop_times.txt not found in GTFS zip file")
 
         with zf.open("stop_times.txt") as f:
-            return pd.read_csv(f,
-                               converters={"arrival_time": parse_gtfs_time,
-                                           "departure_time": parse_gtfs_time})
+            return pd.read_csv(
+                f,
+                converters={
+                    "arrival_time": parse_gtfs_time,
+                    "departure_time": parse_gtfs_time,
+                },
+            )
 
     def stops_with_name(self, name):
         """Returns a list of stops that match the given name.
@@ -251,17 +369,25 @@ class GTFS:
 
         return self.service_dates[date]
 
-    def get_events(self, stop_id, current_time, after=True):
+    def get_events(
+        self,
+        stop_id: Hashable,
+        time: pd.Timestamp,
+        after: bool = True,
+        day_end: int = 4 * 3600,
+    ):
         """Returns a list of timetable events at the given stop corresponding
         to the given time. If after is True, only returns events at or after;
         if after is False, only returns events at or before.
 
         Args:
             stop_id: Stop to get events for.
-            current_time: Time to get events for.
-            after: If True, only return events (i.e., boardings) at or after
-                the given time. If False, only return events (i.e., alightings)
+            time: Time to get events for.
+            after: If True, only return events (i.e., departures) at or after
+                the given time. If False, only return events (i.e., arrivals)
                 at or before the given time.
+            day_end: Time in seconds after midnight that the day ends. Used to
+                determine if the schedule for the previous day should be used.
 
         Returns:
             List of events at the given stop at or after the given time.
@@ -269,53 +395,39 @@ class GTFS:
 
         ret = []
 
+        time_secs = seconds_since_midnight(time)
+        service_date = time.date()
+
         # for each stop pattern that visits at this stop
         for stop_pattern_id in self.stop_pattern_ids[stop_id]:
-            stop_pattern = self.stop_patterns[stop_pattern_id]
-            pattern_row = stop_pattern.index(stop_id)
-
-            if pattern_row == len(stop_pattern)-1:
-                # this is the last stop in the pattern, so there are no
-                # departures
-                continue
-
-            for service_id in self.get_service_ids(current_time.date()):
+            # for each service that is active on this date
+            for service_id in self.get_service_ids(service_date):
                 key = (stop_pattern_id, service_id)
+
                 if key not in self.timetables:
                     continue
 
-                _, timetable = self.timetables[key]
+                timetable = self.timetables[key]
 
-                # find the first trip that departs after the current time
-                if after:
-                    pattern_col = np.searchsorted(timetable[:, pattern_row, 1],
-                                                  current_time, side="left")
-                    if pattern_col == timetable.shape[1]:
-                        # all trips have already departed
-                        continue
-                # find the last trip that arrives before the current time
-                else:
-                    pattern_col = np.searchsorted(timetable[:, pattern_row, 1],
-                                                  current_time, side="right")
-                    if pattern_col == 0:
-                        # there is no trip that arrives before the current time
-                        continue
-
-                event = TimetableEvent(stop_pattern_id, service_id,
-                                       pattern_row, pattern_col)
-                ret.append(event)
+                for i, j, event_time in timetable.lookup_events(
+                    stop_id, time_secs, after
+                ):
+                    event = TimetableEvent(
+                        stop_pattern_id, service_id, i, j, event_time
+                    )
+                    ret.append(event)
 
         return ret
 
     def get_departure_time(self, event):
-        tt_key = (event.stop_pattern_id, event.service_id)
-        _, timetable = self.timetables[tt_key]
-        return timetable[event.pattern_col, event.pattern_row, 1]
+        tt_key = (event.pattern_id, event.service_id)
+        timetable = self.timetables[tt_key]
+        return timetable.departure_times[event.row, event.col]
 
     def get_arrival_time(self, event):
-        tt_key = (event.stop_pattern_id, event.service_id)
-        _, timetable = self.timetables[tt_key]
-        return timetable[event.pattern_col, event.pattern_row, 0]
+        tt_key = (event.pattern_id, event.service_id)
+        timetable = self.timetables[tt_key]
+        return timetable.arrival_times[event.row, event.col]
 
 
 class TransitGraph:
@@ -339,18 +451,24 @@ class TransitGraph:
 
         node_type = node[0]
 
-        if node_type == 'at_stop':
+        if node_type == "at_stop":
             _, stop_id, current_time = node
 
-            for event in self.feed.get_events(stop_id, current_time,
-                                              after=True):
+            for event in self.feed.get_events(
+                stop_id, current_time, after=True
+            ):
+                # get the departure time for this event
+                departure_time = event.time
 
-                departure_time = self.feed.get_departure_time(event)
-
-                node = ('departing', event.stop_pattern_id,
-                        event.service_id, event.pattern_row,
-                        event.pattern_col, departure_time)
-                weight = departure_time - current_time
+                node = (
+                    "departing",
+                    event.pattern_id,
+                    event.service_id,
+                    event.row,
+                    event.col,
+                    departure_time,
+                )
+                weight = departure_time - seconds_since_midnight(current_time)
                 edge = (node, weight)
                 ret.append(edge)
 
