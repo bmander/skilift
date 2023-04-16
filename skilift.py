@@ -1,11 +1,15 @@
 import os
 from collections import defaultdict
-from typing import Hashable, NamedTuple
+from typing import Hashable, List, NamedTuple, Optional, Sequence, Tuple
 from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from numpy.typing import NDArray
+
+SecondsSinceMidnight = int
+GTFSID = Hashable
 
 
 class TimetableEvent(NamedTuple):
@@ -17,68 +21,107 @@ class TimetableEvent(NamedTuple):
 
 
 class Timetable:
-    def __init__(self, trip_ids, stop_ids, arrival_times, departure_times):
+    def __init__(
+        self,
+        trip_ids: Sequence[GTFSID],
+        stop_ids: Sequence[GTFSID],
+        arrival_times: NDArray[np.uint32],
+        departure_times: NDArray[np.uint32],
+    ):
         self.trip_ids = trip_ids
         self.stop_ids = stop_ids
         self.arrival_times = arrival_times
         self.departure_times = departure_times
 
-    def lookup_events(self, stop_id: Hashable, time: int, after: bool = True):
+    def _lookup_departure(
+        self, stop_idx: int, query_time: int
+    ) -> Optional[Tuple[int, SecondsSinceMidnight]]:
+        # if the stop_idx is the last stop, then there is no departure
+        if stop_idx == len(self.stop_ids) - 1:
+            return None
+
+        # get the index of the first trip that is >= the time
+        trip_idx = int(
+            np.searchsorted(
+                self.departure_times[:, stop_idx],
+                query_time,
+                side="left",
+            )
+        )
+
+        # if the time is after the last departure, then there is no
+        # departure
+        if trip_idx == len(self.departure_times):
+            return None
+
+        event_time = self.departure_times[trip_idx, stop_idx]
+        return trip_idx, event_time
+
+    def _lookup_arrival(
+        self, stop_idx: int, query_time: int
+    ) -> Optional[Tuple[int, SecondsSinceMidnight]]:
+        # if the stop_idx is the first stop, then there is no arrival
+        if stop_idx == 0:
+            return None
+
+        # get the index of the first trip that is <= the time
+        trip_idx = (
+            int(
+                np.searchsorted(
+                    self.departure_times[:, stop_idx],
+                    query_time,
+                    side="right",
+                )
+            )
+            - 1
+        )
+
+        # if the time is before the first departure, then there is no
+        # arrival
+        if trip_idx == -1:
+            return None
+
+        event_time = self.arrival_times[trip_idx, stop_idx]
+        return trip_idx, event_time
+
+    def find_stop_events(
+        self,
+        stop_id: Hashable,
+        query_time: int,
+        lookup_next_departure: bool = True,
+    ) -> List[Tuple[int, int, SecondsSinceMidnight]]:
         """Looks up the next event (arrival or departure) for a given stop at
         a given time. Because a trip may visit a stop multiple times, an array
         of events is returned.
 
         Args:
             stop_id: ID of the stop to lookup.
-            time: Time to lookup, in seconds since midnight.
-            after: If True, lookup the next departure event. If False,
-                lookup the previous arrival event.
+            query_time: Time to lookup, in seconds since midnight.
+            lookup_next_departure: If True, lookup the next departure event.
+                If False, lookup the previous arrival event.
 
         Returns:
             A tuple of table row, column, and time for each event.
         """
 
-        ret = []
+        events = []
 
-        # get stop_id indices
-        stop_idxs = np.where(self.stop_ids == stop_id)[0]
+        # Get the indices of the stops in the timetable that match the stop_id.
+        # It is possible that a stop_id appears multiple times in the
+        # timetable.
+        stop_idxs = np.flatnonzero(self.stop_ids == stop_id)
 
         for stop_idx in stop_idxs:
-            if after:
-                # if the stop_idx is the last stop, then there is no departure
-                if stop_idx == len(self.stop_ids) - 1:
-                    continue
-
-                # get the index of the first trip that is >= the time
-                trip_idx = np.searchsorted(
-                    self.departure_times[:, stop_idx], time, side="right"
-                )
-                time = self.departure_times[trip_idx, stop_idx]
-
-                # if the time is after the last departure, then there is no
-                # departure
-                if trip_idx == len(self.departure_times):
-                    continue
-
+            if lookup_next_departure:
+                event = self._lookup_departure(stop_idx, query_time)
             else:
-                # if the stop_idx is the first stop, then there is no arrival
-                if stop_idx == 0:
-                    continue
+                event = self._lookup_arrival(stop_idx, query_time)
 
-                # get the index of the first trip that is <= the time
-                time_idx = np.searchsorted(
-                    self.arrival_times[:, stop_idx], time, side="left"
-                )
-                time = self.arrival_times[time_idx, stop_idx]
+            if event is not None:
+                trip_idx, event_time = event
+                events.append((trip_idx, stop_idx, event_time))
 
-                # if the time is before the first arrival, then there is no
-                # arrival
-                if time_idx == 0:
-                    continue
-
-            ret.append((trip_idx, stop_idx, time))
-
-        return ret
+        return events
 
 
 def expand_pairs(lst):
@@ -409,7 +452,7 @@ class GTFS:
 
                 timetable = self.timetables[key]
 
-                for i, j, event_time in timetable.lookup_events(
+                for i, j, event_time in timetable.find_stop_events(
                     stop_id, time_secs, after
                 ):
                     event = TimetableEvent(
