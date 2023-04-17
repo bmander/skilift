@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from datetime import timedelta
 import os
 from collections import defaultdict
@@ -21,13 +22,48 @@ SecondsSinceMidnight = int
 GTFSID = Hashable
 
 
-class Node(NamedTuple):
-    type: str
-    body: tuple
+class AbstractNode(ABC):
+    def __init__(self, graph):
+        self.graph = graph
+
+    @property
+    @abstractmethod
+    def type(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def outgoing(self) -> List["Edge"]:
+        pass
+
+    @property
+    @abstractmethod
+    def incoming(self) -> List["Edge"]:
+        pass
+
+    # class must be usable as a dictionary key
+    @property
+    @abstractmethod
+    def as_tuple(self):
+        pass
+
+    def __hash__(self):
+        return hash(self.as_tuple)
+
+    def __eq__(self, other):
+        return self.as_tuple == other.as_tuple
+
+    @abstractmethod
+    def __repr__(self):
+        pass
+
+
+class AbstractGraph(ABC):
+    pass
 
 
 class Edge(NamedTuple):
-    node: Node
+    node: AbstractNode
     weight: float
 
 
@@ -500,119 +536,210 @@ class GTFS:
         return events
 
 
-class TransitGraph:
+class TransitGraph(AbstractGraph):
     ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
 
-    def __init__(self, feed: GTFS):
-        self.feed = feed
+    class AtStopNode(AbstractNode):
+        """Represents a passenger not aboard a transit vehicle at a named
+        transit stop available to board a transit vehicle.
 
-    def _at_stop_forward(self, node: Node) -> Sequence[Edge]:
-        assert node.type == "at_stop"
+        Available outgoing transitions:
+            - DepartureNode: Board a transit vehicle.
+        """
 
-        stop_id, current_time = node.body
+        def __init__(self, graph, stop_id, datetime):
+            self.graph = graph
+            self.stop_id = stop_id
+            self.datetime = datetime
 
-        outgoing_edges = []
+        @property
+        def type(self):
+            return "at_stop"
 
-        for event in self.feed.find_stop_events(
-            stop_id, current_time, find_departures=True
-        ):
-            node = Node(
-                type="departing",
-                body=(
+        @property
+        def outgoing(self):
+            outgoing_edges = []
+
+            for event in self.graph.feed.find_stop_events(
+                self.stop_id, self.datetime, find_departures=True
+            ):
+                node = TransitGraph.DepartureNode(
+                    self.graph,
                     event.pattern_id,
                     event.service_id,
                     event.row,
                     event.col,
                     event.datetime,
-                ),
+                )
+                weight = float((event.datetime - self.datetime).seconds)
+                edge = Edge(node, weight)
+                outgoing_edges.append(edge)
+
+            return outgoing_edges
+
+        def incoming(self):
+            return NotImplementedError
+
+        def as_tuple(self):
+            return (self.type, self.stop_id, self.datetime)
+
+        def __repr__(self):
+            return (
+                f"AtStopNode(stop_id:{self.stop_id}, datetime:{self.datetime})"
             )
-            weight = float((event.datetime - current_time).seconds)
-            edge = Edge(node, weight)
-            outgoing_edges.append(edge)
 
-        return outgoing_edges
+    class DepartureNode(AbstractNode):
+        """Represents a passenger aboard a transit vehicle at the moment of
+        departure from a named transit stop.
 
-    def _departing_forward(self, node: Node) -> Sequence[Edge]:
-        assert node.type == "departing"
-
-        pattern_id, service_id, row, col, current_time = node.body
-
-        timetable = self.feed.timetables[(pattern_id, service_id)]
-
-        last_departure_time = timetable.departure_times[row, col]
-        arrival_time = timetable.arrival_times[row, col + 1]
-        segment_duration = arrival_time - last_departure_time
-
-        arrival_datetime = current_time + pd.Timedelta(
-            segment_duration, unit="s"
-        )
-
-        node = Node(
-            type="arriving",
-            body=(pattern_id, service_id, row, col + 1, arrival_datetime),
-        )
-        weight = float(segment_duration)
-        edge = Edge(node, weight)
-
-        return [edge]
-
-    def _arriving_forward(self, node: Node) -> Sequence[Edge]:
-        assert node.type == "arriving"
-
-        outgoing_edges = []
-
-        pattern_id, service_id, row, col, current_time = node.body
-
-        timetable = self.feed.timetables[(pattern_id, service_id)]
-
-        # make an edge for waiting until departure
-        arrival_time = timetable.arrival_times[row, col]
-        departure_time = timetable.departure_times[row, col]
-        wait_duration = departure_time - arrival_time
-        node = Node(
-            type="departing",
-            body=(
-                pattern_id,
-                service_id,
-                row,
-                col,
-                current_time + pd.Timedelta(wait_duration, unit="s"),
-            ),
-        )
-        departure_edge = Edge(node, float(wait_duration))
-        outgoing_edges.append(departure_edge)
-
-        # make an edge for alighting to the stop
-        stop_id = timetable.stop_ids[col]
-        node = Node(type="at_stop", body=(stop_id, current_time))
-        alighting_edge = Edge(node, self.ALIGHTING_WEIGHT)
-        outgoing_edges.append(alighting_edge)
-
-        return outgoing_edges
-
-    def adjacent_forward(self, node: Node) -> Sequence[Edge]:
-        """Returns adjacent nodes along with the edge weight. Nodes are tuples
-        describing rider states, for example ('at_stop', stop_id, current_time)
-        or ('departing', stop_pattern_id, pattern_row, pattern_col,
-        current_time).
-
-        Args:
-            node: Node for which to get adjacent nodes.
-
-        Returns:
-            List of edges describing adjacent nodes and the edge weight.
+        Available outgoing transitions:
+            - ArrivalNode: Travel to and then arrive at the
+            vehicle's next scheduled stop
         """
 
-        outgoing_edges: List[Edge] = []
+        def __init__(self, graph, pattern_id, service_id, row, col, datetime):
+            self.graph = graph
+            self.pattern_id = pattern_id
+            self.service_id = service_id
+            self.row = row
+            self.col = col
+            self.datetime = datetime
 
-        if node.type == "at_stop":
-            return self._at_stop_forward(node)
-        elif node.type == "departing":
-            return self._departing_forward(node)
-        elif node.type == "arriving":
-            return self._arriving_forward(node)
+        @property
+        def type(self):
+            return "departing"
 
-        return outgoing_edges
+        @property
+        def outgoing(self):
+            timetable = self.graph.feed.timetables[
+                (self.pattern_id, self.service_id)
+            ]
+
+            departure_time = timetable.departure_times[self.row, self.col]
+            next_arrival_time = timetable.arrival_times[self.row, self.col + 1]
+            segment_duration = next_arrival_time - departure_time
+
+            arrival_datetime = self.datetime + pd.Timedelta(
+                segment_duration, unit="s"
+            )
+
+            node = TransitGraph.ArrivalNode(
+                self.graph,
+                self.pattern_id,
+                self.service_id,
+                self.row,
+                self.col + 1,
+                arrival_datetime,
+            )
+            weight = float(segment_duration)
+            edge = Edge(node, weight)
+
+            return [edge]
+
+        @property
+        def incoming(self):
+            raise NotImplementedError
+
+        def as_tuple(self):
+            return (
+                self.type,
+                self.pattern_id,
+                self.service_id,
+                self.row,
+                self.col,
+                self.datetime,
+            )
+
+        def __repr__(self):
+            return (
+                f"DepartureNode(pattern_id:{self.pattern_id}, "
+                f"service_id:{self.service_id}, "
+                f"row:{self.row}, col:{self.col}, datetime:{self.datetime})"
+            )
+
+    class ArrivalNode(AbstractNode):
+        """Represents a passenger aboard a transit vehicle at the moment of
+        arrival at a named transit stop.
+
+        Available outgoing transitions:
+            - AtStopNode: Alight from the transit vehicle.
+            - DepartureNode: Stay in the vehicle until the moment it departs
+            for the next schedules stop.
+        """
+
+        def __init__(self, graph, pattern_id, service_id, row, col, datetime):
+            self.graph = graph
+            self.pattern_id = pattern_id
+            self.service_id = service_id
+            self.row = row
+            self.col = col
+            self.datetime = datetime
+
+        @property
+        def type(self):
+            return "arriving"
+
+        @property
+        def outgoing(self):
+            outgoing_edges = []
+
+            timetable = self.graph.feed.timetables[
+                (self.pattern_id, self.service_id)
+            ]
+
+            # make an edge for waiting until departure
+            arrival_time = timetable.arrival_times[self.row, self.col]
+            departure_time = timetable.departure_times[self.row, self.col]
+            wait_duration = departure_time - arrival_time
+            node = TransitGraph.DepartureNode(
+                self.graph,
+                self.pattern_id,
+                self.service_id,
+                self.row,
+                self.col,
+                self.datetime + pd.Timedelta(wait_duration, unit="s"),
+            )
+            departure_edge = Edge(node, float(wait_duration))
+            outgoing_edges.append(departure_edge)
+
+            # make an edge for alighting to the stop
+            stop_id = timetable.stop_ids[self.col]
+            node = TransitGraph.AtStopNode(self.graph, stop_id, self.datetime)
+            alighting_edge = Edge(node, TransitGraph.ALIGHTING_WEIGHT)
+            outgoing_edges.append(alighting_edge)
+
+            return outgoing_edges
+
+        @property
+        def incoming(self):
+            raise NotImplementedError
+
+        def as_tuple(self):
+            return (
+                self.type,
+                self.pattern_id,
+                self.service_id,
+                self.row,
+                self.col,
+                self.datetime,
+            )
+
+        def __repr__(self):
+            return (
+                f"ArrivalNode(pattern_id:{self.pattern_id}, "
+                f"service_id:{self.service_id}, "
+                f"row:{self.row}, col:{self.col}, datetime:{self.datetime})"
+            )
+
+    def __init__(self, feed: GTFS):
+        self.feed = feed
+
+    def get_stop_node(self, stop_name, datetime):
+        stop_id = self.feed.stops[self.feed.stops.stop_name == stop_name][
+            "stop_id"
+        ].iloc[0]
+
+        return TransitGraph.AtStopNode(self, stop_id, datetime)
 
     @classmethod
     def load(cls, filename):
