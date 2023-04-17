@@ -22,11 +22,6 @@ class AbstractNode(ABC):
 
     @property
     @abstractmethod
-    def type(self) -> str:
-        pass
-
-    @property
-    @abstractmethod
     def outgoing(self) -> List["Edge"]:
         pass
 
@@ -544,10 +539,6 @@ class AtStopNode(AbstractNode):
         self.datetime = datetime
 
     @property
-    def type(self):
-        return "at_stop"
-
-    @property
     def outgoing(self):
         outgoing_edges = []
 
@@ -572,7 +563,7 @@ class AtStopNode(AbstractNode):
         return NotImplementedError
 
     def as_tuple(self):
-        return (self.type, self.stop_id, self.datetime)
+        return (self.__class__.__name__, self.stop_id, self.datetime)
 
     def __repr__(self):
         return f"AtStopNode(stop_id:{self.stop_id}, datetime:{self.datetime})"
@@ -594,10 +585,6 @@ class DepartureNode(AbstractNode):
         self.row = row
         self.col = col
         self.datetime = datetime
-
-    @property
-    def type(self):
-        return "departing"
 
     @property
     def outgoing(self):
@@ -632,7 +619,7 @@ class DepartureNode(AbstractNode):
 
     def as_tuple(self):
         return (
-            self.type,
+            self.__class__.__name__,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -668,7 +655,7 @@ class ArrivalNode(AbstractNode):
 
     @property
     def type(self):
-        return "arriving"
+        return "arrival"
 
     @property
     def outgoing(self):
@@ -707,7 +694,7 @@ class ArrivalNode(AbstractNode):
 
     def as_tuple(self):
         return (
-            self.type,
+            self.__class__.__name__,
             self.pattern_id,
             self.service_id,
             self.row,
