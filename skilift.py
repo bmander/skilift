@@ -1,3 +1,4 @@
+from datetime import timedelta
 import os
 from collections import defaultdict
 from typing import Hashable, List, NamedTuple, Optional, Sequence, Tuple
@@ -88,7 +89,7 @@ class Timetable:
         self,
         stop_id: Hashable,
         query_time: int,
-        lookup_next_departure: bool = True,
+        find_departure: bool = True,
     ) -> List[Tuple[int, int, SecondsSinceMidnight]]:
         """Looks up the next event (arrival or departure) for a given stop at
         a given time. Because a trip may visit a stop multiple times, an array
@@ -97,8 +98,8 @@ class Timetable:
         Args:
             stop_id: ID of the stop to lookup.
             query_time: Time to lookup, in seconds since midnight.
-            lookup_next_departure: If True, lookup the next departure event.
-                If False, lookup the previous arrival event.
+            find_departure: If True, lookup the next departure event. If False,
+                lookup the previous arrival event.
 
         Returns:
             A tuple of table row, column, and time for each event.
@@ -112,7 +113,7 @@ class Timetable:
         stop_idxs = np.flatnonzero(self.stop_ids == stop_id)
 
         for stop_idx in stop_idxs:
-            if lookup_next_departure:
+            if find_departure:
                 event = self._lookup_departure(stop_idx, query_time)
             else:
                 event = self._lookup_arrival(stop_idx, query_time)
@@ -181,6 +182,9 @@ class GTFS:
 
         self._augment_with_stop_patterns()
         self.timetables = self._get_timetables()
+
+        self.day_start = self.stop_times["arrival_time"].min()
+        self.day_end = self.stop_times["departure_time"].max()
 
     @classmethod
     def _is_gtfs_zip(cls, zf):
@@ -412,39 +416,50 @@ class GTFS:
 
         return self.service_dates[date]
 
-    def get_events(
+    def find_stop_events(
         self,
         stop_id: Hashable,
-        time: pd.Timestamp,
-        after: bool = True,
-        day_end: int = 4 * 3600,
-    ):
-        """Returns a list of timetable events at the given stop corresponding
-        to the given time. If after is True, only returns events at or after;
-        if after is False, only returns events at or before.
+        query_datetime: pd.Timestamp,
+        find_departures: bool = True,
+    ) -> List[TimetableEvent]:
+        """Returns a list of timetable events (either arrivals or departures)
+        at the given stop corresponding to the given time. If after is True,
+        only returns events at or after; if after is False, only returns events
+        at or before.
 
         Args:
             stop_id: Stop to get events for.
-            time: Time to get events for.
-            after: If True, only return events (i.e., departures) at or after
-                the given time. If False, only return events (i.e., arrivals)
-                at or before the given time.
-            day_end: Time in seconds after midnight that the day ends. Used to
-                determine if the schedule for the previous day should be used.
+            query_datetime: Date and time to get events for.
+            find_departures: If True, only return events (i.e., departures) at
+                or after the given time. If False, only return events
+                (i.e., arrivals) at or before the given time.
 
         Returns:
             List of events at the given stop at or after the given time.
         """
 
-        ret = []
+        SECS_IN_DAY = 24 * 60 * 60
 
-        time_secs = seconds_since_midnight(time)
-        service_date = time.date()
+        events = []
+
+        query_time = seconds_since_midnight(query_datetime)
+        query_date = query_datetime.date()
+
+        # The query_time will always be between 0 and 24 hours, but gtfs
+        # times can be greater than 24 hours to represent schedule events
+        # in the early morning of the next day. If the query time is in the
+        # early morning, we need to query the previous day's schedule.
+        if query_time + SECS_IN_DAY < self.day_end:
+            query_time += SECS_IN_DAY
+            query_date -= timedelta(days=1)
+
+        # TODO: If the query time is at the edges of the schedule, query
+        # the previous/next day's schedule as well.
 
         # for each stop pattern that visits at this stop
         for stop_pattern_id in self.stop_pattern_ids[stop_id]:
             # for each service that is active on this date
-            for service_id in self.get_service_ids(service_date):
+            for service_id in self.get_service_ids(query_date):
                 key = (stop_pattern_id, service_id)
 
                 if key not in self.timetables:
@@ -453,31 +468,25 @@ class GTFS:
                 timetable = self.timetables[key]
 
                 for i, j, event_time in timetable.find_stop_events(
-                    stop_id, time_secs, after
+                    stop_id, query_time, find_departures
                 ):
+                    event_datetime = pd.Timestamp(
+                        query_date, tz=query_datetime.tz
+                    ) + pd.Timedelta(event_time, unit="s")
+
                     event = TimetableEvent(
-                        stop_pattern_id, service_id, i, j, event_time
+                        stop_pattern_id, service_id, i, j, event_datetime
                     )
-                    ret.append(event)
+                    events.append(event)
 
-        return ret
-
-    def get_departure_time(self, event):
-        tt_key = (event.pattern_id, event.service_id)
-        timetable = self.timetables[tt_key]
-        return timetable.departure_times[event.row, event.col]
-
-    def get_arrival_time(self, event):
-        tt_key = (event.pattern_id, event.service_id)
-        timetable = self.timetables[tt_key]
-        return timetable.arrival_times[event.row, event.col]
+        return events
 
 
 class TransitGraph:
     def __init__(self, feed):
         self.feed = feed
 
-    def adjacent_forward(self, node):
+    def adjacent_forward(self, node: Tuple) -> Sequence[Tuple[Tuple, float]]:
         """Returns adjacent nodes along with the edge weight. Nodes are tuples
         describing rider states, for example ('at_stop', stop_id, current_time)
         or ('departing', stop_pattern_id, pattern_row, pattern_col,
@@ -490,15 +499,15 @@ class TransitGraph:
             List of tuples describing adjacent nodes and the edge weight.
         """
 
-        ret = []
+        outgoing_edges = []
 
         node_type = node[0]
 
         if node_type == "at_stop":
             _, stop_id, current_time = node
 
-            for event in self.feed.get_events(
-                stop_id, current_time, after=True
+            for event in self.feed.find_stop_events(
+                stop_id, current_time, find_departures=True
             ):
                 # get the departure time for this event
                 departure_time = event.time
@@ -511,11 +520,11 @@ class TransitGraph:
                     event.col,
                     departure_time,
                 )
-                weight = departure_time - seconds_since_midnight(current_time)
+                weight = float((departure_time - current_time).seconds)
                 edge = (node, weight)
-                ret.append(edge)
+                outgoing_edges.append(edge)
 
-        return ret
+        return outgoing_edges
 
     @classmethod
     def load(cls, filename):
