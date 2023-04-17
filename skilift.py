@@ -21,6 +21,16 @@ SecondsSinceMidnight = int
 GTFSID = Hashable
 
 
+class Node(NamedTuple):
+    type: str
+    body: tuple
+
+
+class Edge(NamedTuple):
+    node: Node
+    weight: float
+
+
 class TimetableEvent(NamedTuple):
     pattern_id: int
     service_id: int
@@ -491,12 +501,12 @@ class GTFS:
 
 
 class TransitGraph:
-    ALIGHTING_WEIGHT = 60  # utils; where 1 util ~= 1 second of travel time
+    ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
 
     def __init__(self, feed: GTFS):
         self.feed = feed
 
-    def adjacent_forward(self, node: Tuple) -> Sequence[Tuple[Tuple, float]]:
+    def adjacent_forward(self, node: Node) -> Sequence[Edge]:
         """Returns adjacent nodes along with the edge weight. Nodes are tuples
         describing rider states, for example ('at_stop', stop_id, current_time)
         or ('departing', stop_pattern_id, pattern_row, pattern_col,
@@ -506,32 +516,32 @@ class TransitGraph:
             node: Node for which to get adjacent nodes.
 
         Returns:
-            List of tuples describing adjacent nodes and the edge weight.
+            List of edges describing adjacent nodes and the edge weight.
         """
 
-        outgoing_edges: List[Tuple[Tuple, float]] = []
+        outgoing_edges: List[Edge] = []
 
-        node_type = node[0]
-
-        if node_type == "at_stop":
-            _, stop_id, current_time = node
+        if node.type == "at_stop":
+            stop_id, current_time = node.body
 
             for event in self.feed.find_stop_events(
                 stop_id, current_time, find_departures=True
             ):
-                node = (
-                    "departing",
-                    event.pattern_id,
-                    event.service_id,
-                    event.row,
-                    event.col,
-                    event.datetime,
+                node = Node(
+                    type="departing",
+                    body=(
+                        event.pattern_id,
+                        event.service_id,
+                        event.row,
+                        event.col,
+                        event.datetime,
+                    ),
                 )
                 weight = float((event.datetime - current_time).seconds)
-                edge = (node, weight)
+                edge = Edge(node, weight)
                 outgoing_edges.append(edge)
-        elif node_type == "departing":
-            _, pattern_id, service_id, row, col, current_time = node
+        elif node.type == "departing":
+            pattern_id, service_id, row, col, current_time = node.body
 
             timetable = self.feed.timetables[(pattern_id, service_id)]
 
@@ -543,19 +553,15 @@ class TransitGraph:
                 segment_duration, unit="s"
             )
 
-            node = (
-                "arriving",
-                pattern_id,
-                service_id,
-                row,
-                col + 1,
-                arrival_datetime,
+            node = Node(
+                type="arriving",
+                body=(pattern_id, service_id, row, col + 1, arrival_datetime),
             )
             weight = float(segment_duration)
-            edge = (node, weight)
+            edge = Edge(node, weight)
             outgoing_edges.append(edge)
-        elif node_type == "arriving":
-            _, pattern_id, service_id, row, col, current_time = node
+        elif node.type == "arriving":
+            pattern_id, service_id, row, col, current_time = node.body
 
             timetable = self.feed.timetables[(pattern_id, service_id)]
 
@@ -563,23 +569,23 @@ class TransitGraph:
             arrival_time = timetable.arrival_times[row, col]
             departure_time = timetable.departure_times[row, col]
             wait_duration = departure_time - arrival_time
-            node = (
-                "departing",
-                pattern_id,
-                service_id,
-                row,
-                col,
-                current_time + pd.Timedelta(wait_duration, unit="s"),
+            node = Node(
+                type="departing",
+                body=(
+                    pattern_id,
+                    service_id,
+                    row,
+                    col,
+                    current_time + pd.Timedelta(wait_duration, unit="s"),
+                ),
             )
-            weight = float(wait_duration)
-            departure_edge = (node, weight)
+            departure_edge = Edge(node, float(wait_duration))
             outgoing_edges.append(departure_edge)
 
             # make an edge for alighting to the stop
             stop_id = timetable.stop_ids[col]
-            node = ("at_stop", stop_id, current_time)
-            weight = self.ALIGHTING_WEIGHT
-            alighting_edge = (node, weight)
+            node = Node(type="at_stop", body=(stop_id, current_time))
+            alighting_edge = Edge(node, self.ALIGHTING_WEIGHT)
             outgoing_edges.append(alighting_edge)
 
         return outgoing_edges
