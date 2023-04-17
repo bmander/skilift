@@ -1,7 +1,15 @@
 from datetime import timedelta
 import os
 from collections import defaultdict
-from typing import Hashable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import (
+    Dict,
+    Hashable,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+)
 from zipfile import ZipFile
 
 import numpy as np
@@ -18,7 +26,7 @@ class TimetableEvent(NamedTuple):
     service_id: int
     row: int  # the index of the trip
     col: int  # the index of the stop
-    time: int  # seconds since midnight
+    datetime: pd.Timestamp  # datetime of the event
 
 
 class Timetable:
@@ -255,7 +263,7 @@ class GTFS:
                 stop_pattern_ids[stop_id].add(stop_pattern_id)
         self.stop_pattern_ids = dict(stop_pattern_ids)
 
-    def _get_timetables(self):
+    def _get_timetables(self) -> Dict[Tuple[int, Hashable], Timetable]:
         timetables = {}
 
         def grouper_func(group):
@@ -483,7 +491,9 @@ class GTFS:
 
 
 class TransitGraph:
-    def __init__(self, feed):
+    ALIGHTING_WEIGHT = 60  # utils; where 1 util ~= 1 second of travel time
+
+    def __init__(self, feed: GTFS):
         self.feed = feed
 
     def adjacent_forward(self, node: Tuple) -> Sequence[Tuple[Tuple, float]]:
@@ -499,7 +509,7 @@ class TransitGraph:
             List of tuples describing adjacent nodes and the edge weight.
         """
 
-        outgoing_edges = []
+        outgoing_edges: List[Tuple[Tuple, float]] = []
 
         node_type = node[0]
 
@@ -509,20 +519,68 @@ class TransitGraph:
             for event in self.feed.find_stop_events(
                 stop_id, current_time, find_departures=True
             ):
-                # get the departure time for this event
-                departure_time = event.time
-
                 node = (
                     "departing",
                     event.pattern_id,
                     event.service_id,
                     event.row,
                     event.col,
-                    departure_time,
+                    event.datetime,
                 )
-                weight = float((departure_time - current_time).seconds)
+                weight = float((event.datetime - current_time).seconds)
                 edge = (node, weight)
                 outgoing_edges.append(edge)
+        elif node_type == "departing":
+            _, pattern_id, service_id, row, col, current_time = node
+
+            timetable = self.feed.timetables[(pattern_id, service_id)]
+
+            last_departure_time = timetable.departure_times[row, col]
+            arrival_time = timetable.arrival_times[row, col + 1]
+            segment_duration = arrival_time - last_departure_time
+
+            arrival_datetime = current_time + pd.Timedelta(
+                segment_duration, unit="s"
+            )
+
+            node = (
+                "arriving",
+                pattern_id,
+                service_id,
+                row,
+                col + 1,
+                arrival_datetime,
+            )
+            weight = float(segment_duration)
+            edge = (node, weight)
+            outgoing_edges.append(edge)
+        elif node_type == "arriving":
+            _, pattern_id, service_id, row, col, current_time = node
+
+            timetable = self.feed.timetables[(pattern_id, service_id)]
+
+            # make an edge for waiting until departure
+            arrival_time = timetable.arrival_times[row, col]
+            departure_time = timetable.departure_times[row, col]
+            wait_duration = departure_time - arrival_time
+            node = (
+                "departing",
+                pattern_id,
+                service_id,
+                row,
+                col,
+                current_time + pd.Timedelta(wait_duration, unit="s"),
+            )
+            weight = float(wait_duration)
+            departure_edge = (node, weight)
+            outgoing_edges.append(departure_edge)
+
+            # make an edge for alighting to the stop
+            stop_id = timetable.stop_ids[col]
+            node = ("at_stop", stop_id, current_time)
+            weight = self.ALIGHTING_WEIGHT
+            alighting_edge = (node, weight)
+            outgoing_edges.append(alighting_edge)
 
         return outgoing_edges
 
