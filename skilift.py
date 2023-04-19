@@ -1,12 +1,26 @@
+"""SkiLift is a minimal bicycle+transit journey planner."""
+
+import math
 import os
 from abc import ABC, abstractmethod
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import timedelta
-from typing import Dict, Hashable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import (
+    Dict,
+    Hashable,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 from zipfile import ZipFile
 
 import numpy as np
+import osmium
 import pandas as pd
+import rasterio
 from dotenv import load_dotenv
 from numpy.typing import NDArray
 
@@ -17,8 +31,15 @@ GTFSID = Hashable
 
 
 class AbstractNode(ABC):
-    def __init__(self, graph):
-        self.graph = graph
+    """Abstract base node for representing the state of an individual human
+    traveler at some point at a specific point in time. For example an
+    implementing subclass "AtStop" might represent a traveler who is waiting
+    for a bus at a specific stop. Another subclass "OnBike" might represent a
+    traveler who is riding a bike.
+    """
+
+    def __init__(self, feed: "GTFS"):
+        self.feed = feed
 
     @property
     @abstractmethod
@@ -31,24 +52,19 @@ class AbstractNode(ABC):
         pass
 
     # class must be usable as a dictionary key
-    @property
     @abstractmethod
     def as_tuple(self):
         pass
 
     def __hash__(self):
-        return hash(self.as_tuple)
+        return hash(self.as_tuple())
 
     def __eq__(self, other):
-        return self.as_tuple == other.as_tuple
+        return self.as_tuple() == other.as_tuple()
 
     @abstractmethod
     def __repr__(self):
         pass
-
-
-class AbstractGraph(ABC):
-    pass
 
 
 class Edge(NamedTuple):
@@ -57,6 +73,8 @@ class Edge(NamedTuple):
 
 
 class TimetableEvent(NamedTuple):
+    """Represents an event in a GTFS timetable."""
+
     pattern_id: int
     service_id: int
     row: int  # the index of the trip
@@ -65,6 +83,8 @@ class TimetableEvent(NamedTuple):
 
 
 class Timetable:
+    """Represents a GTFS timetable."""
+
     def __init__(
         self,
         trip_ids: Sequence[GTFSID],
@@ -211,23 +231,28 @@ def seconds_since_midnight(time: pd.Timestamp) -> int:
 
 
 class GTFS:
-    def __init__(self, zf):
+    """Represents a GTFS feed."""
+
+    def __init__(self, fname: str):
         """Reads in GTFS data from a zipfile."""
 
-        if not self._is_gtfs_zip(zf):
-            raise ValueError("Error: zipfile is not a valid GTFS zip file")
+        with open(fname, "rb") as f:
+            zf = ZipFile(f)
 
-        self.zf = zf
-        self.service_dates = self._expand_service_dates(zf)
-        self.trips = self._read_trips(zf)
-        self.stops = self._read_stops(zf)
-        self.stop_times = self._read_stop_times(zf)
+            if not self._is_gtfs_zip(zf):
+                raise ValueError("Error: zipfile is not a valid GTFS zip file")
 
-        self._augment_with_stop_patterns()
-        self.timetables = self._get_timetables()
+            self.zf = zf
+            self.service_dates = self._expand_service_dates(zf)
+            self.trips = self._read_trips(zf)
+            self.stops = self._read_stops(zf)
+            self.stop_times = self._read_stop_times(zf)
 
-        self.day_start = self.stop_times["arrival_time"].min()
-        self.day_end = self.stop_times["departure_time"].max()
+            self._augment_with_stop_patterns()
+            self.timetables = self._get_timetables()
+
+            self.day_start = self.stop_times["arrival_time"].min()
+            self.day_end = self.stop_times["departure_time"].max()
 
     @classmethod
     def _is_gtfs_zip(cls, zf):
@@ -395,12 +420,12 @@ class GTFS:
                 calendar_dates = pd.read_csv(f, parse_dates=["date"])
 
             def process_calendar_dates_row(row):
-                ADD_SERVICE = 1
-                REMOVE_SERVICE = 2
+                add_service = 1
+                remove_service = 2
 
-                if row.exception_type == ADD_SERVICE:
+                if row.exception_type == add_service:
                     expanded_cal[row.date.date()].add(row.service_id)
-                elif row.exception_type == REMOVE_SERVICE:
+                elif row.exception_type == remove_service:
                     if row.service_id in expanded_cal[row.date.date()]:
                         expanded_cal[row.date.date()].remove(row.service_id)
 
@@ -410,21 +435,23 @@ class GTFS:
 
     def _read_trips(self, zf):
         if "trips.txt" not in zf.namelist():
-            raise Exception("trips.txt not found in GTFS zip file")
+            raise FileNotFoundError("trips.txt not found in GTFS zip file")
 
         with zf.open("trips.txt") as f:
             return pd.read_csv(f)
 
     def _read_stops(self, zf):
         if "stops.txt" not in zf.namelist():
-            raise Exception("stops.txt not found in GTFS zip file")
+            raise FileNotFoundError("stops.txt not found in GTFS zip file")
 
         with zf.open("stops.txt") as f:
             return pd.read_csv(f)
 
     def _read_stop_times(self, zf):
         if "stop_times.txt" not in zf.namelist():
-            raise Exception("stop_times.txt not found in GTFS zip file")
+            raise FileNotFoundError(
+                "stop_times.txt not found in GTFS zip file"
+            )
 
         with zf.open("stop_times.txt") as f:
             return pd.read_csv(
@@ -481,7 +508,7 @@ class GTFS:
             List of events at the given stop at or after the given time.
         """
 
-        SECS_IN_DAY = 24 * 60 * 60
+        secs_in_day = 24 * 60 * 60
 
         events = []
 
@@ -492,8 +519,8 @@ class GTFS:
         # times can be greater than 24 hours to represent schedule events
         # in the early morning of the next day. If the query time is in the
         # early morning, we need to query the previous day's schedule.
-        if query_time + SECS_IN_DAY < self.day_end:
-            query_time += SECS_IN_DAY
+        if query_time + secs_in_day < self.day_end:
+            query_time += secs_in_day
             query_date -= timedelta(days=1)
 
         # TODO: If the query time is at the edges of the schedule, query
@@ -533,8 +560,8 @@ class AtStopNode(AbstractNode):
         - DepartureNode: Board a transit vehicle.
     """
 
-    def __init__(self, graph, stop_id, datetime):
-        self.graph = graph
+    def __init__(self, feed, stop_id, datetime):
+        super().__init__(feed)
         self.stop_id = stop_id
         self.datetime = datetime
 
@@ -542,11 +569,11 @@ class AtStopNode(AbstractNode):
     def outgoing(self):
         outgoing_edges = []
 
-        for event in self.graph.feed.find_stop_events(
+        for event in self.feed.find_stop_events(
             self.stop_id, self.datetime, find_departures=True
         ):
             node = DepartureNode(
-                self.graph,
+                self.feed,
                 event.pattern_id,
                 event.service_id,
                 event.row,
@@ -559,6 +586,7 @@ class AtStopNode(AbstractNode):
 
         return outgoing_edges
 
+    @property
     def incoming(self):
         return NotImplementedError
 
@@ -578,8 +606,8 @@ class DepartureNode(AbstractNode):
         vehicle's next scheduled stop
     """
 
-    def __init__(self, graph, pattern_id, service_id, row, col, datetime):
-        self.graph = graph
+    def __init__(self, feed, pattern_id, service_id, row, col, datetime):
+        super().__init__(feed)
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
@@ -588,9 +616,7 @@ class DepartureNode(AbstractNode):
 
     @property
     def outgoing(self):
-        timetable = self.graph.feed.timetables[
-            (self.pattern_id, self.service_id)
-        ]
+        timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
 
         departure_time = timetable.departure_times[self.row, self.col]
         next_arrival_time = timetable.arrival_times[self.row, self.col + 1]
@@ -601,7 +627,7 @@ class DepartureNode(AbstractNode):
         )
 
         node = ArrivalNode(
-            self.graph,
+            self.feed,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -645,8 +671,8 @@ class ArrivalNode(AbstractNode):
         for the next schedules stop.
     """
 
-    def __init__(self, graph, pattern_id, service_id, row, col, datetime):
-        self.graph = graph
+    def __init__(self, feed, pattern_id, service_id, row, col, datetime):
+        super().__init__(feed)
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
@@ -661,16 +687,14 @@ class ArrivalNode(AbstractNode):
     def outgoing(self):
         outgoing_edges = []
 
-        timetable = self.graph.feed.timetables[
-            (self.pattern_id, self.service_id)
-        ]
+        timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
 
         # make an edge for waiting until departure
         arrival_time = timetable.arrival_times[self.row, self.col]
         departure_time = timetable.departure_times[self.row, self.col]
         wait_duration = departure_time - arrival_time
         node = DepartureNode(
-            self.graph,
+            self.feed,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -682,7 +706,7 @@ class ArrivalNode(AbstractNode):
 
         # make an edge for alighting to the stop
         stop_id = timetable.stop_ids[self.col]
-        node = AtStopNode(self.graph, stop_id, self.datetime)
+        node = AtStopNode(self.feed, stop_id, self.datetime)
         alighting_edge = Edge(node, ALIGHTING_WEIGHT)
         outgoing_edges.append(alighting_edge)
 
@@ -710,24 +734,183 @@ class ArrivalNode(AbstractNode):
         )
 
 
-class TransitGraph(AbstractGraph):
-    def __init__(self, feed: GTFS):
-        self.feed = feed
+def get_stop_node(feed, stop_name, datetime):
+    stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
 
-    def get_stop_node(self, stop_name, datetime):
-        stop_id = self.feed.stops[self.feed.stops.stop_name == stop_name][
-            "stop_id"
-        ].iloc[0]
+    return AtStopNode(feed, stop_id, datetime)
 
-        return AtStopNode(self, stop_id, datetime)
 
-    @classmethod
-    def load(cls, filename):
-        with ZipFile(filename, "r") as zf:
-            feed = GTFS(zf)
-            ret = cls(feed)
+class Way(NamedTuple):
+    nds: List[int]
+    tags: Dict[str, str]
 
-        return ret
+
+class OpenStreetMap:
+    """Represents an OpenStreetMap dataset."""
+
+    def __init__(self, filename):
+        self._ingest_data(filename)
+
+    def _ingest_data(self, filename):
+        """
+        Read an OSM file and return a dictionary of nodes and ways.
+        """
+        nodes = {}
+        ways = {}
+
+        class NodeHandler(osmium.SimpleHandler):
+            def node(self, n):
+                nodes[n.id] = (n.location.lat, n.location.lon)
+
+        class HighwayHandler(osmium.SimpleHandler):
+            def way(self, w):
+                if "highway" not in w.tags:
+                    return
+
+                nds = [n.ref for n in w.nodes]
+                tags = dict(w.tags)
+
+                ways[w.id] = Way(nds, tags)
+
+        h = HighwayHandler()
+        h.apply_file(filename)
+
+        n = NodeHandler()
+        n.apply_file(filename)
+
+        self.nodes = nodes
+        self.ways = ways
+
+
+class ElevationRaster:
+    def __init__(self, filename):
+        self.filename = filename
+        self._file = None
+        self._elevdata = None
+
+    def __enter__(self):
+        self._file = rasterio.open(self.filename)
+        self._elevdata = self._file.read(1)  # read the first band
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._file.close()
+        self._elevdata = None
+
+    def _interpolate(self, A: NDArray, i: int, j: int) -> float:
+        """Bilinear interpolation.
+
+        Args:
+            A (np.ndarray): A 2x2 array of values.
+            i (float): The fractional row.
+            j (float): The fractional column.
+
+        Returns:
+            float: The interpolated value."""
+
+        baseline = A[0] * (1 - i) + A[1] * i
+        return baseline[0] * (1 - j) + baseline[1] * j
+
+    def get_elevation(self, lat: float, lon: float) -> float:
+        """Get the elevation of a point.
+
+        Args:
+            lat (float): The latitude of the point.
+            lon (float): The longitude of the point.
+
+        Returns:
+            float: The elevation of the point.
+        """
+
+        # make sure this is called in the context of a with statement
+        if self._file is None:
+            raise RuntimeError(
+                "ElevationRaster must be used in a with statement."
+            )
+
+        # get the elevation at the node
+        # apply the transform to get the fractional row and column
+        row, col = self._file.index(lon, lat, op=lambda x: x)
+
+        if (
+            row < 0
+            or col < 0
+            or row >= self._file.height
+            or col >= self._file.width
+        ):
+            return np.nan
+
+        # read a small window around the point
+        row_floor = math.floor(row)
+        col_floor = math.floor(col)
+        elevs_window = self._elevdata[
+            row_floor : row_floor + 2, col_floor : col_floor + 2
+        ]
+
+        # interpolate the elevation
+        row_frac = row - row_floor
+        col_frac = col - col_floor
+        elev = self._interpolate(elevs_window, row_frac, col_frac)
+
+        return elev
+
+
+def get_elevations_for_nodes(
+    elev_raster_fn: str, nodes: Dict[int, Tuple[float, float]]
+) -> Dict[int, float]:
+    """Get the elevation of each node in a list of nodes.
+
+    Args:
+        elev_raster_fn (str): Path to the elevation raster file.
+        nodes (Dict[int, Tuple(float, float)]): A dictionary of node IDs and
+            their (lat, lon) coordinates.
+
+    Returns:
+        Dict[int, float]: A dictionary of node IDs and their elevations.
+    """
+
+    node_elevs: Dict[int, float] = {}
+
+    with ElevationRaster(elev_raster_fn) as elev_raster:
+        for node, (lat, lon) in nodes.items():
+            node_elevs[node] = elev_raster.get_elevation(lat, lon)
+
+    return node_elevs
+
+
+def get_graph_nodes(ways: Dict[int, Way]) -> Set[int]:
+    """Get all the graph nodes from the ways. The graph nodes are the nodes
+    that are used more than once, or they are the start or end node of a street.
+
+    Args:
+        ways (Dict): A dictionary of ways.
+
+    Returns:
+        Set: A set of graph nodes.
+    """
+
+    graph_nodes = set()
+
+    node_count: Counter = Counter()
+    for way in ways.values():
+        # if a way has 0 or 1 nodes, it's not a street
+        if len(way.nds) < 2:
+            continue
+
+        # add the start and end nodes
+        graph_nodes.add(way.nds[0])
+        graph_nodes.add(way.nds[-1])
+
+        # count the number of times a node appears
+        node_count.update(way.nds)
+
+    # get all nodes that appear more than once
+    intersection_nodes = set(
+        node for node, count in node_count.items() if count > 1
+    )
+    graph_nodes = graph_nodes.union(intersection_nodes)
+
+    return graph_nodes
 
 
 def main():
@@ -753,9 +936,8 @@ def main():
             fn = os.path.join(data_dir, filename)
             zf = ZipFile(fn, "r")
 
-            if TransitGraph._is_gtfs_zip(zf):
-                gtfs = GTFS(zf)
-                print(gtfs.calendar)
+            gtfs = GTFS(zf)
+            print(gtfs.calendar)
 
     # read in every file in the street data directory
 
