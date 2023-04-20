@@ -1043,10 +1043,10 @@ class ElevationAwareStreetDataset:
 
         print("Creating spatial index...", end="", flush=True)
         (
-            self.way_segment_indices,
-            self.way_segments,
+            self.segment_way_refs,
+            self.segments,
         ) = self._generate_way_segments()
-        self.way_segment_index = STRtree(self.way_segments)
+        self.segment_spatial_index = STRtree(self.segments)
         print("done")
 
     def _generate_way_segments(
@@ -1057,19 +1057,19 @@ class ElevationAwareStreetDataset:
         This is a part of generating the index that is used to find the closest
         way to a particular location."""
 
-        way_segment_indices = []
-        way_segments = []
+        segment_way_refs = []
+        segments = []
         for way_id, way in self.ways.items():
-            for i, (nd1, nd2) in enumerate(cons(way.nds)):
+            for segment_ix, (nd1, nd2) in enumerate(cons(way.nds)):
                 pt1 = self.nodes[nd1]
                 pt2 = self.nodes[nd2]
 
                 segment = LineString([pt1, pt2])
 
-                way_segment_indices.append((way_id, i))
-                way_segments.append(segment)
+                segment_way_refs.append((way_id, segment_ix))
+                segments.append(segment)
 
-        return way_segment_indices, way_segments
+        return segment_way_refs, segments
 
     def get_nearest_segment(
         self, lat: float, lon: float, search_radius: float = 0.001
@@ -1090,22 +1090,23 @@ class ElevationAwareStreetDataset:
 
         query_pt = Point(lon, lat)
         search_area = query_pt.buffer(search_radius)
-        response_indices = self.way_segment_index.query(search_area)
+        nearby_segment_ids = self.segment_spatial_index.query(search_area)
 
-        if len(response_indices) == 0:
+        if len(nearby_segment_ids) == 0:
             return None
 
         i = np.argmin(
             [
-                self.way_segments[seg_ix].distance(query_pt)
-                for seg_ix in response_indices
+                self.segments[nearby_segment_id].distance(query_pt)
+                for nearby_segment_id in nearby_segment_ids
             ]
         )
+        nearest_segment_id = nearby_segment_ids[i]
 
-        way_id, segment_index = self.way_segment_indices[i]
-        distance_along_segment = self.way_segment[i].line_locate_point(
-            query_pt, normalized=True
-        )
+        way_id, segment_index = self.segment_way_refs[nearest_segment_id]
+        distance_along_segment = self.segments[
+            nearest_segment_id
+        ].line_locate_point(query_pt, normalized=True)
 
         return way_id, segment_index, distance_along_segment
 
