@@ -745,41 +745,48 @@ class Way(NamedTuple):
     tags: Dict[str, str]
 
 
-class OpenStreetMap:
-    """Represents an OpenStreetMap dataset."""
+def read_osm(
+    filename: str,
+) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, Way]]:
+    """
+    Read an OSM file and return a dictionary of nodes and ways.
 
-    def __init__(self, filename):
-        self._ingest_data(filename)
+    Args:
+        filename (str): The path to the OSM file.
 
-    def _ingest_data(self, filename):
-        """
-        Read an OSM file and return a dictionary of nodes and ways.
-        """
-        nodes = {}
-        ways = {}
+    Returns:
+        nodes (dict): A dictionary of nodes, keyed by node ID.
+        ways (dict): A dictionary of ways, keyed by way ID.
+    """
+    nodes = {}
+    ways = {}
 
-        class NodeHandler(osmium.SimpleHandler):
-            def node(self, n):
+    way_nds = set()
+
+    class HighwayHandler(osmium.SimpleHandler):
+        def way(self, w):
+            if "highway" not in w.tags:
+                return
+
+            nds = [n.ref for n in w.nodes]
+            way_nds.update(nds)
+            tags = dict(w.tags)
+
+            ways[w.id] = Way(nds, tags)
+
+    h = HighwayHandler()
+    h.apply_file(filename)
+
+    class NodeHandler(osmium.SimpleHandler):
+        def node(self, n):
+            # only keep nodes that are part of a highway
+            if n.id in way_nds:
                 nodes[n.id] = (n.location.lat, n.location.lon)
 
-        class HighwayHandler(osmium.SimpleHandler):
-            def way(self, w):
-                if "highway" not in w.tags:
-                    return
+    n = NodeHandler()
+    n.apply_file(filename)
 
-                nds = [n.ref for n in w.nodes]
-                tags = dict(w.tags)
-
-                ways[w.id] = Way(nds, tags)
-
-        h = HighwayHandler()
-        h.apply_file(filename)
-
-        n = NodeHandler()
-        n.apply_file(filename)
-
-        self.nodes = nodes
-        self.ways = ways
+    return nodes, ways
 
 
 class ElevationRaster:
@@ -911,6 +918,77 @@ def get_graph_nodes(ways: Dict[int, Way]) -> Set[int]:
     graph_nodes = graph_nodes.union(intersection_nodes)
 
     return graph_nodes
+
+
+def get_node_references(
+    ways: Dict[int, Way]
+) -> Dict[int, Set[Tuple[int, int]]]:
+    """Get a dictionary of node references.
+
+    Args:
+        ways (Dict): A dictionary of ways. The keys are the way IDs and the
+            values are the ways.
+
+    Returns:
+        Dict: A dictionary of node references. The keys are the node IDs and the
+            values are a set of tuples. Each tuple contains the way ID and the
+            index of the node in the way."""
+
+    nd_refs: Dict[int, Set[Tuple[int, int]]] = defaultdict(set)
+
+    for way_id, way in ways.items():
+        for i, nd in enumerate(way.nds):
+            nd_refs[nd].add((way_id, i))
+
+    return nd_refs
+
+
+class OnEarthSurface(AbstractNode):
+    """Represents a passenger standing on the surface of the earth at a
+    particular location and time."""
+
+    def __init__(self, lat: float, lon: float, time: pd.Timestamp):
+        """Initialize the node.
+
+        Args:
+            lat (float): The latitude of the passenger.
+            lon (float): The longitude of the passenger.
+            time (pd.Timestamp): The time of the passenger.
+        """
+
+        self.lat = lat
+        self.lon = lon
+        self.time = time
+
+
+class ElevationAwareStreetDataset:
+    """Holds all the context needed to generate adjacent edges in a
+    street network. The context includes street and elevation data."""
+
+    def __init__(self, osm_fn: str, elevation_raster_fn: str):
+        """Initialize the dataset.
+
+        Args:
+            osm_fn (str): Path to the OSM file.
+            elevation_raster_fn (str): Path to the elevation raster file.
+        """
+
+        self.osm_fn = osm_fn
+        self.elevation_raster_fn = elevation_raster_fn
+
+        print("Reading OSM file...", end="", flush=True)
+        self.nodes, self.ways = read_osm(osm_fn)
+        print("done")
+
+        print("Indexing ways...", end="", flush=True)
+        self.node_refs = get_node_references(self.ways)
+        print("done")
+
+        print("Getting node elevations...", end="", flush=True)
+        self.node_elevs = get_elevations_for_nodes(
+            self.elevation_raster_fn, self.nodes
+        )
+        print("done")
 
 
 def main():
