@@ -9,6 +9,8 @@ from typing import (
     Any,
     Dict,
     Hashable,
+    Iterable,
+    Iterator,
     List,
     NamedTuple,
     Optional,
@@ -24,6 +26,8 @@ import pandas as pd
 import rasterio
 from dotenv import load_dotenv
 from numpy.typing import NDArray
+from shapely.geometry import LineString, Point
+from shapely.strtree import STRtree
 
 ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
 
@@ -975,12 +979,37 @@ class OnEarthSurfaceNode(AbstractNode):
 
         super().__init__(context)
 
+        self.osm = self.context.get("osm")
         self.lat = lat
         self.lon = lon
         self.time = time
 
+    @property
+    def outgoing(self) -> List[Edge]:
+        """Get the outgoing edges from this node.
+
+        Returns:
+            List[Edge]: A list of outgoing edges.
+        """
+
+        edges: List[Edge] = []
+
+        if self.osm is not None:
+            segment = self.osm.get_nearest_segment(self.lat, self.lon)
+
+        return edges
+
     def __repr__(self) -> str:
         return f"OnEarthSurfaceNode({self.lat}, {self.lon}, {self.time})"
+
+
+def cons(ary: Iterable) -> Iterator[Tuple[Any, Any]]:
+    """Return a generator of consecutive pairs from the input iterable."""
+    it = iter(ary)
+    prev = next(it)
+    for item in it:
+        yield prev, item
+        prev = item
 
 
 class ElevationAwareStreetDataset:
@@ -1011,6 +1040,74 @@ class ElevationAwareStreetDataset:
             self.elevation_raster_fn, self.nodes
         )
         print("done")
+
+        print("Creating spatial index...", end="", flush=True)
+        (
+            self.way_segment_indices,
+            self.way_segments,
+        ) = self._generate_way_segments()
+        self.way_segment_index = STRtree(self.way_segments)
+        print("done")
+
+    def _generate_way_segments(
+        self,
+    ) -> Tuple[List[Tuple[int, int]], List[LineString]]:
+        """Generate all the segments in the ways.
+
+        This is a part of generating the index that is used to find the closest
+        way to a particular location."""
+
+        way_segment_indices = []
+        way_segments = []
+        for way_id, way in self.ways.items():
+            for i, (nd1, nd2) in enumerate(cons(way.nds)):
+                pt1 = self.nodes[nd1]
+                pt2 = self.nodes[nd2]
+
+                segment = LineString([pt1, pt2])
+
+                way_segment_indices.append((way_id, i))
+                way_segments.append(segment)
+
+        return way_segment_indices, way_segments
+
+    def get_nearest_segment(
+        self, lat: float, lon: float, search_radius: float = 0.001
+    ) -> Tuple[int, int, float] | None:
+        """Get the nearest segment to a particular location.
+
+        Args:
+            lat (float): The latitude of the location.
+            lon (float): The longitude of the location.
+            search_radius (float, optional): The search radius in degrees.
+                Defaults to 0.001, which is about 100 meters.
+
+        Returns:
+            Tuple[int, int, float]: A tuple containing the way ID, the index of
+                the segment in the way, and the distance along the segment that
+                is closest to the location.
+        """
+
+        query_pt = Point(lon, lat)
+        search_area = query_pt.buffer(search_radius)
+        response_indices = self.way_segment_index.query(search_area)
+
+        if len(response_indices) == 0:
+            return None
+
+        i = np.argmin(
+            [
+                self.way_segments[seg_ix].distance(query_pt)
+                for seg_ix in response_indices
+            ]
+        )
+
+        way_id, segment_index = self.way_segment_indices[i]
+        distance_along_segment = self.way_segment[i].line_locate_point(
+            query_pt, normalized=True
+        )
+
+        return way_id, segment_index, distance_along_segment
 
 
 def main():
