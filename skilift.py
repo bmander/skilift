@@ -57,11 +57,14 @@ class AbstractNode(ABC):
     def as_tuple(self):
         pass
 
+    def _identity_tuple(self):
+        return (self.__class__.__name__, self.as_tuple())
+
     def __hash__(self):
-        return hash(self.as_tuple())
+        return hash(self._identity_tuple())
 
     def __eq__(self, other):
-        return self.as_tuple() == other.as_tuple()
+        return self._identity_tuple() == other._identity_tuple()
 
     @abstractmethod
     def __repr__(self):
@@ -597,7 +600,7 @@ class AtStopNode(AbstractNode):
         return NotImplementedError
 
     def as_tuple(self):
-        return (self.__class__.__name__, self.stop_id, self.datetime)
+        return (self.stop_id, self.datetime)
 
     def __repr__(self):
         return f"AtStopNode(stop_id:{self.stop_id}, datetime:{self.datetime})"
@@ -656,7 +659,6 @@ class DepartureNode(AbstractNode):
 
     def as_tuple(self):
         return (
-            self.__class__.__name__,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -734,7 +736,6 @@ class ArrivalNode(AbstractNode):
 
     def as_tuple(self):
         return (
-            self.__class__.__name__,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -959,7 +960,7 @@ def get_node_references(
     return nd_refs
 
 
-class OnEarthSurface(AbstractNode):
+class OnEarthSurfaceNode(AbstractNode):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
@@ -977,6 +978,9 @@ class OnEarthSurface(AbstractNode):
         self.lat = lat
         self.lon = lon
         self.time = time
+
+    def __repr__(self) -> str:
+        return f"OnEarthSurfaceNode({self.lat}, {self.lon}, {self.time})"
 
 
 class ElevationAwareStreetDataset:
