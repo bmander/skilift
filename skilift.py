@@ -30,6 +30,8 @@ from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
 ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
+WALKING_SPEED = 1.2  # meters per second
+WALKING_RELUCTANCE = 1.0  # utils per second of walking
 
 SecondsSinceMidnight = int
 GTFSID = Hashable
@@ -802,7 +804,7 @@ def read_osm(
         def node(self, n):
             # only keep nodes that are part of a highway
             if n.id in way_nds:
-                nodes[n.id] = (n.location.lat, n.location.lon)
+                nodes[n.id] = (n.location.lon, n.location.lat)
 
     n = NodeHandler()
     n.apply_file(filename)
@@ -839,12 +841,12 @@ class ElevationRaster:
         baseline = A[0] * (1 - i) + A[1] * i
         return baseline[0] * (1 - j) + baseline[1] * j
 
-    def get_elevation(self, lat: float, lon: float) -> float:
+    def get_elevation(self, lon: float, lat: float) -> float:
         """Get the elevation of a point.
 
         Args:
-            lat (float): The latitude of the point.
             lon (float): The longitude of the point.
+            lat (float): The latitude of the point.
 
         Returns:
             float: The elevation of the point.
@@ -891,7 +893,7 @@ def get_elevations_for_nodes(
     Args:
         elev_raster_fn (str): Path to the elevation raster file.
         nodes (Dict[int, Tuple(float, float)]): A dictionary of node IDs and
-            their (lat, lon) coordinates.
+            their (lon, lat) coordinates.
 
     Returns:
         Dict[int, float]: A dictionary of node IDs and their elevations.
@@ -900,8 +902,8 @@ def get_elevations_for_nodes(
     node_elevs: Dict[int, float] = {}
 
     with ElevationRaster(elev_raster_fn) as elev_raster:
-        for node, (lat, lon) in nodes.items():
-            node_elevs[node] = elev_raster.get_elevation(lat, lon)
+        for node, (lon, lat) in nodes.items():
+            node_elevs[node] = elev_raster.get_elevation(lon, lat)
 
     return node_elevs
 
@@ -964,24 +966,53 @@ def get_node_references(
     return nd_refs
 
 
+def geodesic_distance_meters(geo_pt: Point, geo_pt2: Point) -> float:
+    """Compute the geodesic distance in meters between two points on the earth's surface."""
+
+    # TODO: this can be vectorized if it ever becomes a bottleneck
+
+    # convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(
+        np.radians, [geo_pt.x, geo_pt.y, geo_pt2.x, geo_pt2.y]
+    )
+
+    # haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = (
+        np.sin(dlat / 2) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    )
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    earth_radius_km = 6371
+    km = earth_radius_km * c
+    return km * 1000
+
+
 class OnEarthSurfaceNode(AbstractNode):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
-    def __init__(self, context, lat: float, lon: float, time: pd.Timestamp):
+    def __init__(self, context, lon: float, lat: float, time: pd.Timestamp):
         """Initialize the node.
 
         Args:
-            lat (float): The latitude of the passenger.
             lon (float): The longitude of the passenger.
+            lat (float): The latitude of the passenger.
             time (pd.Timestamp): The time of the passenger.
         """
+
+        if lon < -180 or lon > 180:
+            raise ValueError(f"Invalid longitude: {lon}")
+        if lat < -90 or lat > 90:
+            raise ValueError(f"Invalid latitude: {lat}")
 
         super().__init__(context)
 
         self.osm = self.context.get("osm")
-        self.lat = lat
         self.lon = lon
+        self.lat = lat
         self.time = time
 
     @property
@@ -995,12 +1026,86 @@ class OnEarthSurfaceNode(AbstractNode):
         edges: List[Edge] = []
 
         if self.osm is not None:
-            segment = self.osm.get_nearest_segment(self.lat, self.lon)
+            segment = self.osm.get_nearest_segment(self.lon, self.lat)
+            if segment is not None:
+                way_id, segment_ix, linear_ref = segment
+
+                closest_way_pt = self.osm.get_way_point(
+                    way_id, segment_ix, linear_ref
+                )
+                distance = geodesic_distance_meters(
+                    Point(self.lon, self.lat), closest_way_pt
+                )
+
+                dt = distance / WALKING_SPEED
+                weight = dt * WALKING_RELUCTANCE
+
+                node = OnStreetNode(
+                    self.context,
+                    way_id,
+                    segment_ix,
+                    linear_ref,
+                    self.time + pd.Timedelta(seconds=dt),
+                )
+
+                edges.append(Edge(node, weight))
 
         return edges
 
+    @property
+    def incoming(self) -> List[Edge]:
+        """Get the incoming edges to this node.
+
+        Returns:
+            List[Edge]: A list of incoming edges.
+        """
+
+        raise NotImplementedError()
+
+    def as_tuple(self):
+        return (self.lon, self.lat, self.time)
+
     def __repr__(self) -> str:
-        return f"OnEarthSurfaceNode({self.lat}, {self.lon}, {self.time})"
+        return f"OnEarthSurfaceNode({self.lon}, {self.lat}, {self.time})"
+
+
+class OnStreetNode(AbstractNode):
+    """Represents a passenger standing on a street segment."""
+
+    def __init__(self, context, way_id, segment_ix, linear_ref, time):
+        """Initialize the node.
+
+        Args:
+            way_id (int): The ID of the way.
+            segment_ix (int): The index of the segment.
+            linear_ref (float): The linear reference along the segment.
+            time (pd.Timestamp): The time of the passenger.
+        """
+
+        super().__init__(context)
+
+        self.osm = self.context.get("osm")
+        self.way_id = way_id
+        self.segment_ix = segment_ix
+        self.linear_ref = linear_ref
+        self.time = time
+
+    @property
+    def outgoing(self) -> List[Edge]:
+        raise NotImplementedError()
+
+    @property
+    def incoming(self) -> List[Edge]:
+        raise NotImplementedError()
+
+    def __repr__(self):
+        return (
+            f"OnStreetNode({self.way_id}, {self.segment_ix}, "
+            f"{self.linear_ref}, {self.time})"
+        )
+
+    def as_tuple(self):
+        return (self.way_id, self.segment_ix, self.linear_ref, self.time)
 
 
 def cons(ary: Iterable) -> Iterator[Tuple[Any, Any]]:
@@ -1072,13 +1177,13 @@ class ElevationAwareStreetDataset:
         return segment_way_refs, segments
 
     def get_nearest_segment(
-        self, lat: float, lon: float, search_radius: float = 0.001
+        self, lon: float, lat: float, search_radius: float = 0.001
     ) -> Tuple[int, int, float] | None:
         """Get the nearest segment to a particular location.
 
         Args:
-            lat (float): The latitude of the location.
             lon (float): The longitude of the location.
+            lat (float): The latitude of the location.
             search_radius (float, optional): The search radius in degrees.
                 Defaults to 0.001, which is about 100 meters.
 
@@ -1109,6 +1214,37 @@ class ElevationAwareStreetDataset:
         ].line_locate_point(query_pt, normalized=True)
 
         return way_id, segment_index, distance_along_segment
+
+    def get_way_point(
+        self, way_id: int, segment_ix: int, linear_ref: float
+    ) -> Point:
+        """Get the point along a way at a particular linear reference.
+
+        Args:
+            way_id (int): The ID of the way.
+            segment_ix (int): The index of the segment in the way.
+            linear_ref (float): The linear reference along the segment.
+
+        Returns:
+            Point: The point along the way at the specified linear reference.
+        """
+
+        way = self.ways[way_id]
+
+        if segment_ix < 0 or segment_ix >= len(way.nds) - 1:
+            raise ValueError(
+                f"Segment index {segment_ix} is out of range for way {way_id}"
+            )
+
+        nd1 = way.nds[segment_ix]
+        nd2 = way.nds[segment_ix + 1]
+
+        pt1 = self.nodes[nd1]
+        pt2 = self.nodes[nd2]
+
+        ls = LineString([pt1, pt2])
+
+        return ls.interpolate(linear_ref, normalized=True)
 
 
 def main():
