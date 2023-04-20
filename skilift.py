@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from datetime import timedelta
 from typing import (
+    Any,
     Dict,
     Hashable,
     List,
@@ -38,8 +39,8 @@ class AbstractNode(ABC):
     traveler who is riding a bike.
     """
 
-    def __init__(self, feed: "GTFS"):
-        self.feed = feed
+    def __init__(self, context: Dict[str, Any]):
+        self.context = context
 
     @property
     @abstractmethod
@@ -560,8 +561,13 @@ class AtStopNode(AbstractNode):
         - DepartureNode: Board a transit vehicle.
     """
 
-    def __init__(self, feed, stop_id, datetime):
-        super().__init__(feed)
+    def __init__(self, context, stop_id, datetime):
+        super().__init__(context)
+
+        if "gtfs_feed" not in context:
+            raise ValueError("Context must contain gtfs_feed")
+
+        self.feed = context["gtfs_feed"]
         self.stop_id = stop_id
         self.datetime = datetime
 
@@ -573,7 +579,7 @@ class AtStopNode(AbstractNode):
             self.stop_id, self.datetime, find_departures=True
         ):
             node = DepartureNode(
-                self.feed,
+                self.context,
                 event.pattern_id,
                 event.service_id,
                 event.row,
@@ -606,8 +612,13 @@ class DepartureNode(AbstractNode):
         vehicle's next scheduled stop
     """
 
-    def __init__(self, feed, pattern_id, service_id, row, col, datetime):
-        super().__init__(feed)
+    def __init__(self, context, pattern_id, service_id, row, col, datetime):
+        super().__init__(context)
+
+        if "gtfs_feed" not in context:
+            raise ValueError("Context must contain gtfs_feed")
+
+        self.feed = context["gtfs_feed"]
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
@@ -627,7 +638,7 @@ class DepartureNode(AbstractNode):
         )
 
         node = ArrivalNode(
-            self.feed,
+            self.context,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -671,8 +682,13 @@ class ArrivalNode(AbstractNode):
         for the next schedules stop.
     """
 
-    def __init__(self, feed, pattern_id, service_id, row, col, datetime):
-        super().__init__(feed)
+    def __init__(self, context, pattern_id, service_id, row, col, datetime):
+        super().__init__(context)
+
+        if "gtfs_feed" not in context:
+            raise ValueError("Context must contain gtfs_feed")
+
+        self.feed = context["gtfs_feed"]
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
@@ -694,7 +710,7 @@ class ArrivalNode(AbstractNode):
         departure_time = timetable.departure_times[self.row, self.col]
         wait_duration = departure_time - arrival_time
         node = DepartureNode(
-            self.feed,
+            self.context,
             self.pattern_id,
             self.service_id,
             self.row,
@@ -706,7 +722,7 @@ class ArrivalNode(AbstractNode):
 
         # make an edge for alighting to the stop
         stop_id = timetable.stop_ids[self.col]
-        node = AtStopNode(self.feed, stop_id, self.datetime)
+        node = AtStopNode(self.context, stop_id, self.datetime)
         alighting_edge = Edge(node, ALIGHTING_WEIGHT)
         outgoing_edges.append(alighting_edge)
 
@@ -737,7 +753,7 @@ class ArrivalNode(AbstractNode):
 def get_stop_node(feed, stop_name, datetime):
     stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
 
-    return AtStopNode(feed, stop_id, datetime)
+    return AtStopNode({"gtfs_feed": feed}, stop_id, datetime)
 
 
 class Way(NamedTuple):
@@ -947,7 +963,7 @@ class OnEarthSurface(AbstractNode):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
-    def __init__(self, lat: float, lon: float, time: pd.Timestamp):
+    def __init__(self, context, lat: float, lon: float, time: pd.Timestamp):
         """Initialize the node.
 
         Args:
@@ -955,6 +971,8 @@ class OnEarthSurface(AbstractNode):
             lon (float): The longitude of the passenger.
             time (pd.Timestamp): The time of the passenger.
         """
+
+        super().__init__(context)
 
         self.lat = lat
         self.lon = lon
