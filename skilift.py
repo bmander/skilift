@@ -60,7 +60,7 @@ class AbstractNode(ABC):
 
     # class must be usable as a dictionary key
     @abstractmethod
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[Hashable]:
         pass
 
     def _identity_tuple(self):
@@ -949,13 +949,11 @@ def get_node_references(
     """Get a dictionary of node references.
 
     Args:
-        ways (Dict): A dictionary of ways. The keys are the way IDs and the
-            values are the ways.
+        ways (Dict): A dictionary with the format {way_id: Way}.
 
     Returns:
-        Dict: A dictionary of node references. The keys are the node IDs and the
-            values are a set of tuples. Each tuple contains the way ID and the
-            index of the node in the way."""
+        Dict: A dictionary of instances in which a node was used in a way.
+            The format is {node_id: {(way_id, node_index)}}"""
 
     nd_refs: Dict[int, Set[Tuple[int, int]]] = defaultdict(set)
 
@@ -1010,7 +1008,7 @@ class OnEarthSurfaceNode(AbstractNode):
 
         super().__init__(context)
 
-        self.osm = self.context.get("osm")
+        self.osm: ElevationAwareStreetDataset | None = self.context.get("osm")
         self.lon = lon
         self.lat = lat
         self.time = time
@@ -1040,7 +1038,7 @@ class OnEarthSurfaceNode(AbstractNode):
                 dt = distance / WALKING_SPEED
                 weight = dt * WALKING_RELUCTANCE
 
-                node = OnStreetNode(
+                node = MidstreetNode(
                     self.context,
                     way_id,
                     segment_ix,
@@ -1069,10 +1067,17 @@ class OnEarthSurfaceNode(AbstractNode):
         return f"OnEarthSurfaceNode({self.lon}, {self.lat}, {self.time})"
 
 
-class OnStreetNode(AbstractNode):
+class MidstreetNode(AbstractNode):
     """Represents a passenger standing on a street segment."""
 
-    def __init__(self, context, way_id, segment_ix, linear_ref, time):
+    def __init__(
+        self,
+        context: dict[str, Any],
+        way_id: int,
+        segment_ix: int,
+        linear_ref: float,
+        time: pd.Timestamp,
+    ):
         """Initialize the node.
 
         Args:
@@ -1084,7 +1089,10 @@ class OnStreetNode(AbstractNode):
 
         super().__init__(context)
 
-        self.osm = self.context.get("osm")
+        if "osm" not in self.context:
+            raise ValueError("The context must contain an OSM object.")
+
+        self.osm: ElevationAwareStreetDataset = self.context["osm"]
         self.way_id = way_id
         self.segment_ix = segment_ix
         self.linear_ref = linear_ref
@@ -1092,7 +1100,15 @@ class OnStreetNode(AbstractNode):
 
     @property
     def outgoing(self) -> List[Edge]:
-        raise NotImplementedError()
+        edges: List[Edge] = []
+
+        current_point = self.osm.get_way_point(
+            self.way_id, self.segment_ix, self.linear_ref
+        )
+
+        next_segment = self.osm.next_vertex_node(self.segment_ix + 1)
+
+        return edges
 
     @property
     def incoming(self) -> List[Edge]:
@@ -1245,6 +1261,47 @@ class ElevationAwareStreetDataset:
         ls = LineString([pt1, pt2])
 
         return ls.interpolate(linear_ref, normalized=True)
+
+    def next_vertex_node(
+        self, way_id: int, nd_index: int, search_forward=True
+    ) -> int:
+        """Get the position in the way of the next vertex node. A vertex node
+        is a node that is either referenced by a way more than once, or is the
+        first or last node. Essentially, it is node at which a turn can be
+        made. The search is inclusive of the node at the specified index.
+
+        Args:
+            way_id (int): The ID of the way.
+            nd_index (int): The index of the node in the way.
+            search_forward (bool, optional): If true, finds the next vertex
+                node. If false, finds the previous vertex node. Defaults to
+                True.
+
+        Returns:
+            int: The index of the next vertex node in the way, inclusive
+                of the node at the specified index."""
+
+        way = self.ways[way_id]
+
+        if nd_index < 0 or nd_index > len(way.nds) - 1:
+            raise ValueError(
+                f"Node index {nd_index} is out of range for way {way_id}"
+            )
+
+        if search_forward:
+            step = 1
+            end = len(way.nds) - 1
+        else:
+            step = -1
+            end = 0
+
+        for i in range(nd_index, end, step):
+            nd = way.nds[i]
+            if len(self.node_refs[nd]) > 1:
+                return i
+
+        # if we get here, we've reached the end of the way
+        return end
 
 
 def main():
