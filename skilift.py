@@ -1,22 +1,27 @@
 """SkiLift is a minimal bicycle+transit journey planner."""
 
+import datetime
 import math
 import os
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from datetime import timedelta
+from types import TracebackType
 from typing import (
     Any,
     Dict,
+    Generator,
     Hashable,
     Iterable,
     Iterator,
     List,
     NamedTuple,
     Optional,
+    Self,
     Sequence,
     Set,
     Tuple,
+    Type,
 )
 from zipfile import ZipFile
 
@@ -60,20 +65,22 @@ class AbstractNode(ABC):
 
     # class must be usable as a dictionary key
     @abstractmethod
-    def as_tuple(self) -> tuple[Hashable]:
+    def as_tuple(self) -> tuple[Hashable, ...]:
         pass
 
-    def _identity_tuple(self):
+    def _identity_tuple(self) -> tuple[str, tuple[Hashable, ...]]:
         return (self.__class__.__name__, self.as_tuple())
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self._identity_tuple())
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, AbstractNode):
+            return False
         return self._identity_tuple() == other._identity_tuple()
 
     @abstractmethod
-    def __repr__(self):
+    def __repr__(self) -> str:
         pass
 
 
@@ -198,7 +205,9 @@ class Timetable:
         return events
 
 
-def expand_pairs(lst):
+def expand_pairs(
+    lst: Iterable[Tuple[Any, Iterable[Any]]]
+) -> Generator[Tuple[Any, Any], None, None]:
     """Expands a list of pairs.
 
     Args:
@@ -237,7 +246,7 @@ def seconds_since_midnight(time: pd.Timestamp) -> int:
         Seconds since midnight.
     """
 
-    return time.hour * 3600 + time.minute * 60 + time.second
+    return int(time.hour * 3600 + time.minute * 60 + time.second)
 
 
 class GTFS:
@@ -265,7 +274,7 @@ class GTFS:
             self.day_end = self.stop_times["departure_time"].max()
 
     @classmethod
-    def _is_gtfs_zip(cls, zf):
+    def _is_gtfs_zip(cls, zf: ZipFile) -> bool:
         """Check that the zipfile contains the required GTFS files.
 
         Args:
@@ -290,7 +299,7 @@ class GTFS:
 
         return True
 
-    def _augment_with_stop_patterns(self):
+    def _augment_with_stop_patterns(self) -> None:
         # get trip_id -> stop pattern
         trip_stop_patterns = (
             self.stop_times.sort_values("stop_sequence")
@@ -300,10 +309,12 @@ class GTFS:
         )
 
         # reverse to get stop_pattern -> trip_ids
-        stop_pattern_trips = defaultdict(set)
+        stop_pattern_trips_collector = defaultdict(set)
         for trip_id, stop_pattern in trip_stop_patterns.items():
-            stop_pattern_trips[stop_pattern["stop_id"]].add(trip_id)
-        stop_pattern_trips = dict(stop_pattern_trips)
+            stop_pattern_trips_collector[stop_pattern["stop_id"]].add(trip_id)
+        stop_pattern_trips: dict[Any, set[Any]] = dict(
+            stop_pattern_trips_collector
+        )
 
         # create stop_pattern_id -> ordered list of stops
         self.stop_patterns = dict(
@@ -336,7 +347,7 @@ class GTFS:
     def _get_timetables(self) -> Dict[Tuple[int, Hashable], Timetable]:
         timetables = {}
 
-        def grouper_func(group):
+        def grouper_func(group: pd.DataFrame) -> pd.DataFrame:
             """This converts a group of stop_times that share a stop_pattern_id
             and service_id into a timetable.
 
@@ -385,7 +396,9 @@ class GTFS:
 
         return timetables
 
-    def _expand_service_dates(self, zf):
+    def _expand_service_dates(
+        self, zf: ZipFile
+    ) -> Dict[datetime.date, Set[str]]:
         """Expands the calendar.txt and calendar_dates.txt files into a
         dictionary of dates to service_ids.
 
@@ -416,7 +429,7 @@ class GTFS:
                 "sunday",
             ]
 
-            def process_calendar_row(row):
+            def process_calendar_row(row: pd.Series) -> None:
                 for date in pd.date_range(row.start_date, row.end_date):
                     if row[weekdays[date.dayofweek]] == 1:
                         expanded_cal[date.date()].add(row.service_id)
@@ -429,7 +442,7 @@ class GTFS:
             with zf.open("calendar_dates.txt") as f:
                 calendar_dates = pd.read_csv(f, parse_dates=["date"])
 
-            def process_calendar_dates_row(row):
+            def process_calendar_dates_row(row: pd.Series) -> None:
                 add_service = 1
                 remove_service = 2
 
@@ -443,21 +456,21 @@ class GTFS:
 
         return dict(expanded_cal)
 
-    def _read_trips(self, zf):
+    def _read_trips(self, zf: ZipFile) -> pd.DataFrame:
         if "trips.txt" not in zf.namelist():
             raise FileNotFoundError("trips.txt not found in GTFS zip file")
 
         with zf.open("trips.txt") as f:
             return pd.read_csv(f)
 
-    def _read_stops(self, zf):
+    def _read_stops(self, zf: ZipFile) -> pd.DataFrame:
         if "stops.txt" not in zf.namelist():
             raise FileNotFoundError("stops.txt not found in GTFS zip file")
 
         with zf.open("stops.txt") as f:
             return pd.read_csv(f)
 
-    def _read_stop_times(self, zf):
+    def _read_stop_times(self, zf: ZipFile) -> pd.DataFrame:
         if "stop_times.txt" not in zf.namelist():
             raise FileNotFoundError(
                 "stop_times.txt not found in GTFS zip file"
@@ -472,7 +485,7 @@ class GTFS:
                 },
             )
 
-    def stops_with_name(self, name):
+    def stops_with_name(self, name: str) -> pd.DataFrame:
         """Returns a list of stops that match the given name.
 
         Args:
@@ -484,7 +497,7 @@ class GTFS:
 
         return self.stops[self.stops.stop_name.str.contains(name)]
 
-    def get_service_ids(self, date):
+    def get_service_ids(self, date: datetime.date) -> set[Any]:
         """Returns a list of service_ids that are active on the given date.
 
         Args:
@@ -570,7 +583,12 @@ class AtStopNode(AbstractNode):
         - DepartureNode: Board a transit vehicle.
     """
 
-    def __init__(self, context, stop_id, datetime):
+    def __init__(
+        self,
+        context: dict[str, Any],
+        stop_id: int | str,
+        datetime: pd.Timestamp,
+    ):
         super().__init__(context)
 
         if "gtfs_feed" not in context:
@@ -581,7 +599,7 @@ class AtStopNode(AbstractNode):
         self.datetime = datetime
 
     @property
-    def outgoing(self):
+    def outgoing(self) -> list[Edge]:
         outgoing_edges = []
 
         for event in self.feed.find_stop_events(
@@ -602,13 +620,13 @@ class AtStopNode(AbstractNode):
         return outgoing_edges
 
     @property
-    def incoming(self):
-        return NotImplementedError
+    def incoming(self) -> list[Edge]:
+        raise NotImplementedError()
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[Any, pd.Timestamp]:
         return (self.stop_id, self.datetime)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"AtStopNode(stop_id:{self.stop_id}, datetime:{self.datetime})"
 
 
@@ -621,7 +639,15 @@ class DepartureNode(AbstractNode):
         vehicle's next scheduled stop
     """
 
-    def __init__(self, context, pattern_id, service_id, row, col, datetime):
+    def __init__(
+        self,
+        context: dict[str, Any],
+        pattern_id: int,
+        service_id: str,
+        row: int,
+        col: int,
+        datetime: pd.Timestamp,
+    ):
         super().__init__(context)
 
         if "gtfs_feed" not in context:
@@ -635,7 +661,7 @@ class DepartureNode(AbstractNode):
         self.datetime = datetime
 
     @property
-    def outgoing(self):
+    def outgoing(self) -> list[Edge]:
         timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
 
         departure_time = timetable.departure_times[self.row, self.col]
@@ -660,10 +686,10 @@ class DepartureNode(AbstractNode):
         return [edge]
 
     @property
-    def incoming(self):
-        raise NotImplementedError
+    def incoming(self) -> list[Edge]:
+        raise NotImplementedError()
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[int, str, int, int, pd.Timestamp]:
         return (
             self.pattern_id,
             self.service_id,
@@ -672,7 +698,7 @@ class DepartureNode(AbstractNode):
             self.datetime,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"DepartureNode(pattern_id:{self.pattern_id}, "
             f"service_id:{self.service_id}, "
@@ -690,7 +716,15 @@ class ArrivalNode(AbstractNode):
         for the next schedules stop.
     """
 
-    def __init__(self, context, pattern_id, service_id, row, col, datetime):
+    def __init__(
+        self,
+        context: dict[str, Any],
+        pattern_id: int,
+        service_id: str,
+        row: int,
+        col: int,
+        datetime: pd.Timestamp,
+    ):
         super().__init__(context)
 
         if "gtfs_feed" not in context:
@@ -704,11 +738,7 @@ class ArrivalNode(AbstractNode):
         self.datetime = datetime
 
     @property
-    def type(self):
-        return "arrival"
-
-    @property
-    def outgoing(self):
+    def outgoing(self) -> list[Edge]:
         outgoing_edges = []
 
         timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
@@ -717,7 +747,7 @@ class ArrivalNode(AbstractNode):
         arrival_time = timetable.arrival_times[self.row, self.col]
         departure_time = timetable.departure_times[self.row, self.col]
         wait_duration = departure_time - arrival_time
-        node = DepartureNode(
+        departure_node = DepartureNode(
             self.context,
             self.pattern_id,
             self.service_id,
@@ -725,22 +755,22 @@ class ArrivalNode(AbstractNode):
             self.col,
             self.datetime + pd.Timedelta(wait_duration, unit="s"),
         )
-        departure_edge = Edge(node, float(wait_duration))
+        departure_edge = Edge(departure_node, float(wait_duration))
         outgoing_edges.append(departure_edge)
 
         # make an edge for alighting to the stop
         stop_id = timetable.stop_ids[self.col]
-        node = AtStopNode(self.context, stop_id, self.datetime)
-        alighting_edge = Edge(node, ALIGHTING_WEIGHT)
+        at_stop_node = AtStopNode(self.context, stop_id, self.datetime)
+        alighting_edge = Edge(at_stop_node, ALIGHTING_WEIGHT)
         outgoing_edges.append(alighting_edge)
 
         return outgoing_edges
 
     @property
-    def incoming(self):
-        raise NotImplementedError
+    def incoming(self) -> list[Edge]:
+        raise NotImplementedError()
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[int, str, int, int, pd.Timestamp]:
         return (
             self.pattern_id,
             self.service_id,
@@ -749,7 +779,7 @@ class ArrivalNode(AbstractNode):
             self.datetime,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"ArrivalNode(pattern_id:{self.pattern_id}, "
             f"service_id:{self.service_id}, "
@@ -757,7 +787,9 @@ class ArrivalNode(AbstractNode):
         )
 
 
-def get_stop_node(feed, stop_name, datetime):
+def get_stop_node(
+    feed: GTFS, stop_name: str, datetime: pd.Timestamp
+) -> AtStopNode:
     stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
 
     return AtStopNode({"gtfs_feed": feed}, stop_id, datetime)
@@ -787,7 +819,7 @@ def read_osm(
     way_nds = set()
 
     class HighwayHandler(osmium.SimpleHandler):
-        def way(self, w):
+        def way(self, w: osmium.osm.Way) -> None:
             if "highway" not in w.tags:
                 return
 
@@ -801,7 +833,7 @@ def read_osm(
     h.apply_file(filename)
 
     class NodeHandler(osmium.SimpleHandler):
-        def node(self, n):
+        def node(self, n: osmium.osm.Node) -> None:
             # only keep nodes that are part of a highway
             if n.id in way_nds:
                 nodes[n.id] = (n.location.lon, n.location.lat)
@@ -813,21 +845,27 @@ def read_osm(
 
 
 class ElevationRaster:
-    def __init__(self, filename):
+    def __init__(self, filename: str):
         self.filename = filename
-        self._file = None
-        self._elevdata = None
+        self._file: rasterio.DatasetReader | None = None
+        self._elevdata: NDArray[np.float64] | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self._file = rasterio.open(self.filename)
         self._elevdata = self._file.read(1)  # read the first band
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._file.close()
+    def __exit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: Exception | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self._file is not None:
+            self._file.close()
         self._elevdata = None
 
-    def _interpolate(self, A: NDArray, i: int, j: int) -> float:
+    def _interpolate(self, A: NDArray[np.float64], i: int, j: int) -> float:
         """Bilinear interpolation.
 
         Args:
@@ -839,7 +877,7 @@ class ElevationRaster:
             float: The interpolated value."""
 
         baseline = A[0] * (1 - i) + A[1] * i
-        return baseline[0] * (1 - j) + baseline[1] * j
+        return float(baseline[0] * (1 - j) + baseline[1] * j)
 
     def get_elevation(self, lon: float, lat: float) -> float:
         """Get the elevation of a point.
@@ -854,6 +892,11 @@ class ElevationRaster:
 
         # make sure this is called in the context of a with statement
         if self._file is None:
+            raise RuntimeError(
+                "ElevationRaster must be used in a with statement."
+            )
+
+        if self._elevdata is None:
             raise RuntimeError(
                 "ElevationRaster must be used in a with statement."
             )
@@ -921,7 +964,7 @@ def get_graph_nodes(ways: Dict[int, Way]) -> Set[int]:
 
     graph_nodes = set()
 
-    node_count: Counter = Counter()
+    node_count: Counter[int] = Counter()
     for way in ways.values():
         # if a way has 0 or 1 nodes, it's not a street
         if len(way.nds) < 2:
@@ -983,16 +1026,22 @@ def geodesic_distance_meters(geo_pt: Point, geo_pt2: Point) -> float:
     )
     c = 2 * np.arcsin(np.sqrt(a))
 
-    earth_radius_km = 6371
+    earth_radius_km = 6371.0
     km = earth_radius_km * c
-    return km * 1000
+    return float(km * 1000.0)
 
 
 class OnEarthSurfaceNode(AbstractNode):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
-    def __init__(self, context, lon: float, lat: float, time: pd.Timestamp):
+    def __init__(
+        self,
+        context: dict[str, Any],
+        lon: float,
+        lat: float,
+        time: pd.Timestamp,
+    ):
         """Initialize the node.
 
         Args:
@@ -1060,7 +1109,7 @@ class OnEarthSurfaceNode(AbstractNode):
 
         raise NotImplementedError()
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[float, float, pd.Timestamp]:
         return (self.lon, self.lat, self.time)
 
     def __repr__(self) -> str:
@@ -1102,11 +1151,11 @@ class MidstreetNode(AbstractNode):
     def outgoing(self) -> List[Edge]:
         edges: List[Edge] = []
 
-        current_point = self.osm.get_way_point(
-            self.way_id, self.segment_ix, self.linear_ref
-        )
+        # current_point = self.osm.get_way_point(
+        #     self.way_id, self.segment_ix, self.linear_ref
+        # )
 
-        next_segment = self.osm.next_vertex_node(self.segment_ix + 1)
+        # next_segment = self.osm.next_vertex_node(self.segment_ix + 1)
 
         return edges
 
@@ -1114,17 +1163,17 @@ class MidstreetNode(AbstractNode):
     def incoming(self) -> List[Edge]:
         raise NotImplementedError()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"OnStreetNode({self.way_id}, {self.segment_ix}, "
             f"{self.linear_ref}, {self.time})"
         )
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[int, int, float, pd.Timestamp]:
         return (self.way_id, self.segment_ix, self.linear_ref, self.time)
 
 
-def cons(ary: Iterable) -> Iterator[Tuple[Any, Any]]:
+def cons(ary: Iterable[Any]) -> Iterator[Tuple[Any, Any]]:
     """Return a generator of consecutive pairs from the input iterable."""
     it = iter(ary)
     prev = next(it)
@@ -1263,7 +1312,7 @@ class ElevationAwareStreetDataset:
         return ls.interpolate(linear_ref, normalized=True)
 
     def next_vertex_node(
-        self, way_id: int, nd_index: int, search_forward=True
+        self, way_id: int, nd_index: int, search_forward: bool = True
     ) -> int:
         """Get the position in the way of the next vertex node. A vertex node
         is a node that is either referenced by a way more than once, or is the
@@ -1304,7 +1353,7 @@ class ElevationAwareStreetDataset:
         return end
 
 
-def main():
+def main() -> None:
     load_dotenv()
 
     # get environment variables
@@ -1320,17 +1369,6 @@ def main():
     if street_data_dir is None:
         print("Error: STREET_DATA_DIR environment variable not set")
         exit(1)
-
-    # read in every file in the transit data directory
-    for filename in os.listdir(data_dir):
-        if filename.endswith(".zip"):
-            fn = os.path.join(data_dir, filename)
-            zf = ZipFile(fn, "r")
-
-            gtfs = GTFS(zf)
-            print(gtfs.calendar)
-
-    # read in every file in the street data directory
 
 
 if __name__ == "__main__":
