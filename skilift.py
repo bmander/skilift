@@ -9,18 +9,13 @@ from datetime import timedelta
 from types import TracebackType
 from typing import (
     Any,
-    Dict,
     Generator,
     Hashable,
     Iterable,
     Iterator,
-    List,
     NamedTuple,
-    Optional,
     Self,
     Sequence,
-    Set,
-    Tuple,
     Type,
 )
 from zipfile import ZipFile
@@ -50,17 +45,17 @@ class AbstractNode(ABC):
     traveler who is riding a bike.
     """
 
-    def __init__(self, context: Dict[str, Any]):
+    def __init__(self, context: dict[str, Any]):
         self.context = context
 
     @property
     @abstractmethod
-    def outgoing(self) -> List["Edge"]:
+    def outgoing(self) -> list["Edge"]:
         pass
 
     @property
     @abstractmethod
-    def incoming(self) -> List["Edge"]:
+    def incoming(self) -> list["Edge"]:
         pass
 
     # class must be usable as a dictionary key
@@ -116,7 +111,7 @@ class Timetable:
 
     def _lookup_departure(
         self, stop_idx: int, query_time: int
-    ) -> Optional[Tuple[int, SecondsSinceMidnight]]:
+    ) -> tuple[int, SecondsSinceMidnight] | None:
         # if the stop_idx is the last stop, then there is no departure
         if stop_idx == len(self.stop_ids) - 1:
             return None
@@ -140,7 +135,7 @@ class Timetable:
 
     def _lookup_arrival(
         self, stop_idx: int, query_time: int
-    ) -> Optional[Tuple[int, SecondsSinceMidnight]]:
+    ) -> tuple[int, SecondsSinceMidnight] | None:
         # if the stop_idx is the first stop, then there is no arrival
         if stop_idx == 0:
             return None
@@ -170,7 +165,7 @@ class Timetable:
         stop_id: Hashable,
         query_time: int,
         find_departure: bool = True,
-    ) -> List[Tuple[int, int, SecondsSinceMidnight]]:
+    ) -> list[tuple[int, int, SecondsSinceMidnight]]:
         """Looks up the next event (arrival or departure) for a given stop at
         a given time. Because a trip may visit a stop multiple times, an array
         of events is returned.
@@ -206,8 +201,8 @@ class Timetable:
 
 
 def expand_pairs(
-    lst: Iterable[Tuple[Any, Iterable[Any]]]
-) -> Generator[Tuple[Any, Any], None, None]:
+    lst: Iterable[tuple[Any, Iterable[Any]]]
+) -> Generator[tuple[Any, Any], None, None]:
     """Expands a list of pairs.
 
     Args:
@@ -344,7 +339,7 @@ class GTFS:
                 stop_pattern_ids[stop_id].add(stop_pattern_id)
         self.stop_pattern_ids = dict(stop_pattern_ids)
 
-    def _get_timetables(self) -> Dict[Tuple[int, Hashable], Timetable]:
+    def _get_timetables(self) -> dict[tuple[int, Hashable], Timetable]:
         timetables = {}
 
         def grouper_func(group: pd.DataFrame) -> pd.DataFrame:
@@ -398,7 +393,7 @@ class GTFS:
 
     def _expand_service_dates(
         self, zf: ZipFile
-    ) -> Dict[datetime.date, Set[str]]:
+    ) -> dict[datetime.date, set[str]]:
         """Expands the calendar.txt and calendar_dates.txt files into a
         dictionary of dates to service_ids.
 
@@ -514,7 +509,7 @@ class GTFS:
         stop_id: Hashable,
         query_datetime: pd.Timestamp,
         find_departures: bool = True,
-    ) -> List[TimetableEvent]:
+    ) -> list[TimetableEvent]:
         """Returns a list of timetable events (either arrivals or departures)
         at the given stop corresponding to the given time. If after is True,
         only returns events at or after; if after is False, only returns events
@@ -796,16 +791,16 @@ def get_stop_node(
 
 
 class Way(NamedTuple):
-    nds: List[int]
-    tags: Dict[str, str]
+    nds: list[int]
+    tags: dict[str, str]
 
 
-Point = tuple[float, float]
+CartesianPoint = tuple[float, float]
 
 
 def read_osm(
     filename: str,
-) -> Tuple[Dict[int, Point], Dict[int, Way]]:
+) -> tuple[dict[int, CartesianPoint], dict[int, Way]]:
     """
     Read an OSM file and return a dictionary of nodes and ways.
 
@@ -932,20 +927,20 @@ class ElevationRaster:
 
 
 def get_elevations_for_nodes(
-    elev_raster_fn: str, nodes: Dict[int, Point]
-) -> Dict[int, float]:
+    elev_raster_fn: str, nodes: dict[int, CartesianPoint]
+) -> dict[int, float]:
     """Get the elevation of each node in a list of nodes.
 
     Args:
         elev_raster_fn (str): Path to the elevation raster file.
-        nodes (Dict[int, Tuple(float, float)]): A dictionary of node IDs and
+        nodes (Dict[int, CartesianPoint]): A dictionary of node IDs and
             their (lon, lat) coordinates.
 
     Returns:
         Dict[int, float]: A dictionary of node IDs and their elevations.
     """
 
-    node_elevs: Dict[int, float] = {}
+    node_elevs: dict[int, float] = {}
 
     with ElevationRaster(elev_raster_fn) as elev_raster:
         for node, (lon, lat) in nodes.items():
@@ -954,7 +949,7 @@ def get_elevations_for_nodes(
     return node_elevs
 
 
-def get_graph_nodes(ways: Dict[int, Way]) -> Set[int]:
+def get_graph_nodes(ways: dict[int, Way]) -> set[int]:
     """Get all the graph nodes from the ways. The graph nodes are the nodes
     that are used more than once, or they are the start or end node of a street.
 
@@ -990,8 +985,8 @@ def get_graph_nodes(ways: Dict[int, Way]) -> Set[int]:
 
 
 def get_node_references(
-    ways: Dict[int, Way]
-) -> Dict[int, Set[Tuple[int, int]]]:
+    ways: dict[int, Way]
+) -> dict[int, set[tuple[int, int]]]:
     """Get a dictionary of node references.
 
     Args:
@@ -1001,7 +996,7 @@ def get_node_references(
         Dict: A dictionary of instances in which a node was used in a way.
             The format is {node_id: {(way_id, node_index)}}"""
 
-    nd_refs: Dict[int, Set[Tuple[int, int]]] = defaultdict(set)
+    nd_refs: dict[int, set[tuple[int, int]]] = defaultdict(set)
 
     for way_id, way in ways.items():
         for i, nd in enumerate(way.nds):
@@ -1066,14 +1061,14 @@ class OnEarthSurfaceNode(AbstractNode):
         self.time = time
 
     @property
-    def outgoing(self) -> List[Edge]:
+    def outgoing(self) -> list[Edge]:
         """Get the outgoing edges from this node.
 
         Returns:
             List[Edge]: A list of outgoing edges.
         """
 
-        edges: List[Edge] = []
+        edges: list[Edge] = []
 
         if self.osm is not None:
             segment = self.osm.get_nearest_segment(self.lon, self.lat)
@@ -1103,7 +1098,7 @@ class OnEarthSurfaceNode(AbstractNode):
         return edges
 
     @property
-    def incoming(self) -> List[Edge]:
+    def incoming(self) -> list[Edge]:
         """Get the incoming edges to this node.
 
         Returns:
@@ -1157,8 +1152,8 @@ class MidstreetNode(AbstractNode):
         )
 
     @property
-    def outgoing(self) -> List[Edge]:
-        edges: List[Edge] = []
+    def outgoing(self) -> list[Edge]:
+        edges: list[Edge] = []
 
         current_point = self.osm.get_way_point(
             self.way_id, self.segment_ix, self.linear_ref
@@ -1172,7 +1167,7 @@ class MidstreetNode(AbstractNode):
         return edges
 
     @property
-    def incoming(self) -> List[Edge]:
+    def incoming(self) -> list[Edge]:
         raise NotImplementedError()
 
     def __repr__(self) -> str:
@@ -1185,7 +1180,7 @@ class MidstreetNode(AbstractNode):
         return (self.way_id, self.segment_ix, self.linear_ref, self.time)
 
 
-def cons(ary: Iterable[Any]) -> Iterator[Tuple[Any, Any]]:
+def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
     """Return a generator of consecutive pairs from the input iterable."""
     it = iter(ary)
     prev = next(it)
@@ -1233,7 +1228,7 @@ class ElevationAwareStreetDataset:
 
     def _generate_way_segments(
         self,
-    ) -> Tuple[List[Tuple[int, int]], List[LineString]]:
+    ) -> tuple[list[tuple[int, int]], list[LineString]]:
         """Generate all the segments in the ways.
 
         This is a part of generating the index that is used to find the closest
@@ -1255,7 +1250,7 @@ class ElevationAwareStreetDataset:
 
     def get_nearest_segment(
         self, lon: float, lat: float, search_radius: float = 0.001
-    ) -> Tuple[int, int, float] | None:
+    ) -> tuple[int, int, float] | None:
         """Get the nearest segment to a particular location.
 
         Args:
