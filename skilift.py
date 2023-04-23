@@ -800,9 +800,12 @@ class Way(NamedTuple):
     tags: Dict[str, str]
 
 
+Point = tuple[float, float]
+
+
 def read_osm(
     filename: str,
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, Way]]:
+) -> Tuple[Dict[int, Point], Dict[int, Way]]:
     """
     Read an OSM file and return a dictionary of nodes and ways.
 
@@ -929,7 +932,7 @@ class ElevationRaster:
 
 
 def get_elevations_for_nodes(
-    elev_raster_fn: str, nodes: Dict[int, Tuple[float, float]]
+    elev_raster_fn: str, nodes: Dict[int, Point]
 ) -> Dict[int, float]:
     """Get the elevation of each node in a list of nodes.
 
@@ -1148,14 +1151,23 @@ class MidstreetNode(AbstractNode):
         self.time = time
 
     @property
+    def point(self) -> Point:
+        return self.osm.get_way_point(
+            self.way_id, self.segment_ix, self.linear_ref
+        )
+
+    @property
     def outgoing(self) -> List[Edge]:
         edges: List[Edge] = []
 
-        # current_point = self.osm.get_way_point(
-        #     self.way_id, self.segment_ix, self.linear_ref
-        # )
+        current_point = self.osm.get_way_point(
+            self.way_id, self.segment_ix, self.linear_ref
+        )
 
-        # next_segment = self.osm.next_vertex_node(self.segment_ix + 1)
+        v0 = self.osm.next_vertex_node(self.way_id, self.segment_ix + 1)
+
+        nds = self.osm.ways[self.way_id].nds[v0:]
+        ls = [self.osm.nodes[nd] for nd in nds]
 
         return edges
 
