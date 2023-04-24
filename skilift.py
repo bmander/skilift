@@ -37,6 +37,18 @@ SecondsSinceMidnight = int
 GTFSID = Hashable
 
 
+class EdgeProvider(ABC):
+    """Abstract base class for providing edges for a given node."""
+
+    @abstractmethod
+    def outgoing(self, node: "AbstractNode") -> list["Edge"]:
+        pass
+
+    @abstractmethod
+    def incoming(self, node: "AbstractNode") -> list["Edge"]:
+        pass
+
+
 class AbstractNode(ABC):
     """Abstract base node for representing the state of an individual human
     traveler at some point at a specific point in time. For example an
@@ -44,19 +56,6 @@ class AbstractNode(ABC):
     for a bus at a specific stop. Another subclass "OnBike" might represent a
     traveler who is riding a bike.
     """
-
-    def __init__(self, context: dict[str, Any]):
-        self.context = context
-
-    @property
-    @abstractmethod
-    def outgoing(self) -> list["Edge"]:
-        pass
-
-    @property
-    @abstractmethod
-    def incoming(self) -> list["Edge"]:
-        pass
 
     # class must be usable as a dictionary key
     @abstractmethod
@@ -88,7 +87,7 @@ class TimetableEvent(NamedTuple):
     """Represents an event in a GTFS timetable."""
 
     pattern_id: int
-    service_id: int
+    service_id: GTFSID
     row: int  # the index of the trip
     col: int  # the index of the stop
     datetime: pd.Timestamp  # datetime of the event
@@ -244,7 +243,7 @@ def seconds_since_midnight(time: pd.Timestamp) -> int:
     return int(time.hour * 3600 + time.minute * 60 + time.second)
 
 
-class GTFS:
+class GTFSFeed:
     """Represents a GTFS feed."""
 
     def __init__(self, fname: str):
@@ -570,6 +569,93 @@ class GTFS:
         return events
 
 
+class TransitEdgeProvider(EdgeProvider):
+    def __init__(self, feed: GTFSFeed):
+        self.feed = feed
+
+    def _at_stop_node_outgoing(self, node: "AtStopNode") -> list[Edge]:
+        outgoing_edges = []
+
+        for event in self.feed.find_stop_events(
+            node.stop_id, node.datetime, find_departures=True
+        ):
+            adj_node = DepartureNode(
+                event.pattern_id,
+                event.service_id,
+                event.row,
+                event.col,
+                event.datetime,
+            )
+            weight = float((event.datetime - adj_node.datetime).seconds)
+            edge = Edge(adj_node, weight)
+            outgoing_edges.append(edge)
+
+        return outgoing_edges
+
+    def _departure_node_outgoing(self, node: "DepartureNode") -> list[Edge]:
+        timetable = self.feed.timetables[(node.pattern_id, node.service_id)]
+
+        departure_time = timetable.departure_times[node.row, node.col]
+        next_arrival_time = timetable.arrival_times[node.row, node.col + 1]
+        segment_duration = next_arrival_time - departure_time
+
+        arrival_datetime = node.datetime + pd.Timedelta(
+            segment_duration, unit="s"
+        )
+
+        adj_node = ArrivalNode(
+            node.pattern_id,
+            node.service_id,
+            node.row,
+            node.col + 1,
+            arrival_datetime,
+        )
+        weight = float(segment_duration)
+        edge = Edge(adj_node, weight)
+
+        return [edge]
+
+    def _arrival_node_outgoing(self, node: "ArrivalNode") -> list[Edge]:
+        outgoing_edges = []
+
+        timetable = self.feed.timetables[(node.pattern_id, node.service_id)]
+
+        # make an edge for waiting until departure
+        arrival_time = timetable.arrival_times[node.row, node.col]
+        departure_time = timetable.departure_times[node.row, node.col]
+        wait_duration = departure_time - arrival_time
+        departure_node = DepartureNode(
+            node.pattern_id,
+            node.service_id,
+            node.row,
+            node.col,
+            node.datetime + pd.Timedelta(wait_duration, unit="s"),
+        )
+        departure_edge = Edge(departure_node, float(wait_duration))
+        outgoing_edges.append(departure_edge)
+
+        # make an edge for alighting to the stop
+        stop_id = timetable.stop_ids[node.col]
+        at_stop_node = AtStopNode(stop_id, node.datetime)
+        alighting_edge = Edge(at_stop_node, ALIGHTING_WEIGHT)
+        outgoing_edges.append(alighting_edge)
+
+        return outgoing_edges
+
+    def outgoing(self, node: AbstractNode) -> list[Edge]:
+        if isinstance(node, AtStopNode):
+            return self._at_stop_node_outgoing(node)
+        elif isinstance(node, DepartureNode):
+            return self._departure_node_outgoing(node)
+        elif isinstance(node, ArrivalNode):
+            return self._arrival_node_outgoing(node)
+        else:
+            return []
+
+    def incoming(self, node: AbstractNode) -> list[Edge]:
+        raise NotImplementedError()
+
+
 class AtStopNode(AbstractNode):
     """Represents a passenger not aboard a transit vehicle at a named transit
     stop available to board a transit vehicle.
@@ -580,43 +666,11 @@ class AtStopNode(AbstractNode):
 
     def __init__(
         self,
-        context: dict[str, Any],
-        stop_id: int | str,
+        stop_id: GTFSID,
         datetime: pd.Timestamp,
     ):
-        super().__init__(context)
-
-        if "gtfs_feed" not in context:
-            raise ValueError("Context must contain gtfs_feed")
-
-        self.feed = context["gtfs_feed"]
         self.stop_id = stop_id
         self.datetime = datetime
-
-    @property
-    def outgoing(self) -> list[Edge]:
-        outgoing_edges = []
-
-        for event in self.feed.find_stop_events(
-            self.stop_id, self.datetime, find_departures=True
-        ):
-            node = DepartureNode(
-                self.context,
-                event.pattern_id,
-                event.service_id,
-                event.row,
-                event.col,
-                event.datetime,
-            )
-            weight = float((event.datetime - self.datetime).seconds)
-            edge = Edge(node, weight)
-            outgoing_edges.append(edge)
-
-        return outgoing_edges
-
-    @property
-    def incoming(self) -> list[Edge]:
-        raise NotImplementedError()
 
     def as_tuple(self) -> tuple[Any, pd.Timestamp]:
         return (self.stop_id, self.datetime)
@@ -636,55 +690,19 @@ class DepartureNode(AbstractNode):
 
     def __init__(
         self,
-        context: dict[str, Any],
         pattern_id: int,
-        service_id: str,
+        service_id: GTFSID,
         row: int,
         col: int,
         datetime: pd.Timestamp,
     ):
-        super().__init__(context)
-
-        if "gtfs_feed" not in context:
-            raise ValueError("Context must contain gtfs_feed")
-
-        self.feed = context["gtfs_feed"]
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
         self.col = col
         self.datetime = datetime
 
-    @property
-    def outgoing(self) -> list[Edge]:
-        timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
-
-        departure_time = timetable.departure_times[self.row, self.col]
-        next_arrival_time = timetable.arrival_times[self.row, self.col + 1]
-        segment_duration = next_arrival_time - departure_time
-
-        arrival_datetime = self.datetime + pd.Timedelta(
-            segment_duration, unit="s"
-        )
-
-        node = ArrivalNode(
-            self.context,
-            self.pattern_id,
-            self.service_id,
-            self.row,
-            self.col + 1,
-            arrival_datetime,
-        )
-        weight = float(segment_duration)
-        edge = Edge(node, weight)
-
-        return [edge]
-
-    @property
-    def incoming(self) -> list[Edge]:
-        raise NotImplementedError()
-
-    def as_tuple(self) -> tuple[int, str, int, int, pd.Timestamp]:
+    def as_tuple(self) -> tuple[int, GTFSID, int, int, pd.Timestamp]:
         return (
             self.pattern_id,
             self.service_id,
@@ -713,59 +731,19 @@ class ArrivalNode(AbstractNode):
 
     def __init__(
         self,
-        context: dict[str, Any],
         pattern_id: int,
-        service_id: str,
+        service_id: GTFSID,
         row: int,
         col: int,
         datetime: pd.Timestamp,
     ):
-        super().__init__(context)
-
-        if "gtfs_feed" not in context:
-            raise ValueError("Context must contain gtfs_feed")
-
-        self.feed = context["gtfs_feed"]
         self.pattern_id = pattern_id
         self.service_id = service_id
         self.row = row
         self.col = col
         self.datetime = datetime
 
-    @property
-    def outgoing(self) -> list[Edge]:
-        outgoing_edges = []
-
-        timetable = self.feed.timetables[(self.pattern_id, self.service_id)]
-
-        # make an edge for waiting until departure
-        arrival_time = timetable.arrival_times[self.row, self.col]
-        departure_time = timetable.departure_times[self.row, self.col]
-        wait_duration = departure_time - arrival_time
-        departure_node = DepartureNode(
-            self.context,
-            self.pattern_id,
-            self.service_id,
-            self.row,
-            self.col,
-            self.datetime + pd.Timedelta(wait_duration, unit="s"),
-        )
-        departure_edge = Edge(departure_node, float(wait_duration))
-        outgoing_edges.append(departure_edge)
-
-        # make an edge for alighting to the stop
-        stop_id = timetable.stop_ids[self.col]
-        at_stop_node = AtStopNode(self.context, stop_id, self.datetime)
-        alighting_edge = Edge(at_stop_node, ALIGHTING_WEIGHT)
-        outgoing_edges.append(alighting_edge)
-
-        return outgoing_edges
-
-    @property
-    def incoming(self) -> list[Edge]:
-        raise NotImplementedError()
-
-    def as_tuple(self) -> tuple[int, str, int, int, pd.Timestamp]:
+    def as_tuple(self) -> tuple[int, GTFSID, int, int, pd.Timestamp]:
         return (
             self.pattern_id,
             self.service_id,
@@ -783,11 +761,11 @@ class ArrivalNode(AbstractNode):
 
 
 def get_stop_node(
-    feed: GTFS, stop_name: str, datetime: pd.Timestamp
+    feed: GTFSFeed, stop_name: str, datetime: pd.Timestamp
 ) -> AtStopNode:
     stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
 
-    return AtStopNode({"gtfs_feed": feed}, stop_id, datetime)
+    return AtStopNode(stop_id, datetime)
 
 
 class Way(NamedTuple):
@@ -1035,7 +1013,6 @@ class OnEarthSurfaceNode(AbstractNode):
 
     def __init__(
         self,
-        context: dict[str, Any],
         lon: float,
         lat: float,
         time: pd.Timestamp,
@@ -1053,59 +1030,9 @@ class OnEarthSurfaceNode(AbstractNode):
         if lat < -90 or lat > 90:
             raise ValueError(f"Invalid latitude: {lat}")
 
-        super().__init__(context)
-
-        self.osm: ElevationAwareStreetDataset | None = self.context.get("osm")
         self.lon = lon
         self.lat = lat
         self.time = time
-
-    @property
-    def outgoing(self) -> list[Edge]:
-        """Get the outgoing edges from this node.
-
-        Returns:
-            List[Edge]: A list of outgoing edges.
-        """
-
-        edges: list[Edge] = []
-
-        if self.osm is not None:
-            segment = self.osm.get_nearest_segment(self.lon, self.lat)
-            if segment is not None:
-                way_id, segment_ix, linear_ref = segment
-
-                closest_way_pt = self.osm.get_way_point(
-                    way_id, segment_ix, linear_ref
-                )
-                distance = geodesic_distance_meters(
-                    Point(self.lon, self.lat), closest_way_pt
-                )
-
-                dt = distance / WALKING_SPEED
-                weight = dt * WALKING_RELUCTANCE
-
-                node = MidstreetNode(
-                    self.context,
-                    way_id,
-                    segment_ix,
-                    linear_ref,
-                    self.time + pd.Timedelta(seconds=dt),
-                )
-
-                edges.append(Edge(node, weight))
-
-        return edges
-
-    @property
-    def incoming(self) -> list[Edge]:
-        """Get the incoming edges to this node.
-
-        Returns:
-            List[Edge]: A list of incoming edges.
-        """
-
-        raise NotImplementedError()
 
     def as_tuple(self) -> tuple[float, float, pd.Timestamp]:
         return (self.lon, self.lat, self.time)
@@ -1119,7 +1046,6 @@ class MidstreetNode(AbstractNode):
 
     def __init__(
         self,
-        context: dict[str, Any],
         way_id: int,
         segment_ix: int,
         linear_ref: float,
@@ -1134,41 +1060,10 @@ class MidstreetNode(AbstractNode):
             time (pd.Timestamp): The time of the passenger.
         """
 
-        super().__init__(context)
-
-        if "osm" not in self.context:
-            raise ValueError("The context must contain an OSM object.")
-
-        self.osm: ElevationAwareStreetDataset = self.context["osm"]
         self.way_id = way_id
         self.segment_ix = segment_ix
         self.linear_ref = linear_ref
         self.time = time
-
-    @property
-    def point(self) -> Point:
-        return self.osm.get_way_point(
-            self.way_id, self.segment_ix, self.linear_ref
-        )
-
-    @property
-    def outgoing(self) -> list[Edge]:
-        edges: list[Edge] = []
-
-        current_point = self.osm.get_way_point(
-            self.way_id, self.segment_ix, self.linear_ref
-        )
-
-        v0 = self.osm.next_vertex_node(self.way_id, self.segment_ix + 1)
-
-        nds = self.osm.ways[self.way_id].nds[v0:]
-        ls = [self.osm.nodes[nd] for nd in nds]
-
-        return edges
-
-    @property
-    def incoming(self) -> list[Edge]:
-        raise NotImplementedError()
 
     def __repr__(self) -> str:
         return (
@@ -1358,6 +1253,66 @@ class ElevationAwareStreetDataset:
 
         # if we get here, we've reached the end of the way
         return end
+
+
+class StreetEdgeProvider(EdgeProvider):
+    def __init__(self, osm_data: ElevationAwareStreetDataset):
+        self.osm_data = osm_data
+
+    def _outgoing_on_earth_surface_node(
+        self, node: OnEarthSurfaceNode
+    ) -> list[Edge]:
+        edges: list[Edge] = []
+
+        segment = self.osm_data.get_nearest_segment(node.lon, node.lat)
+        if segment is not None:
+            way_id, segment_ix, linear_ref = segment
+
+            closest_way_pt = self.osm_data.get_way_point(
+                way_id, segment_ix, linear_ref
+            )
+            distance = geodesic_distance_meters(
+                Point(node.lon, node.lat), closest_way_pt
+            )
+
+            dt = distance / WALKING_SPEED
+            weight = dt * WALKING_RELUCTANCE
+
+            adj_node = MidstreetNode(
+                way_id,
+                segment_ix,
+                linear_ref,
+                node.time + pd.Timedelta(seconds=dt),
+            )
+
+            edges.append(Edge(adj_node, weight))
+
+        return edges
+
+    def _outgoing_midstreet_node(self, node: MidstreetNode) -> list[Edge]:
+        edges: list[Edge] = []
+
+        current_point = self.osm_data.get_way_point(
+            node.way_id, node.segment_ix, node.linear_ref
+        )
+
+        v0 = self.osm_data.next_vertex_node(node.way_id, node.segment_ix + 1)
+
+        nds = self.osm_data.ways[node.way_id].nds[v0:]
+        ls = [self.osm_data.nodes[nd] for nd in nds]
+
+        return edges
+
+    def outgoing(self, node: AbstractNode) -> list[Edge]:
+        if isinstance(node, OnEarthSurfaceNode):
+            return self._outgoing_on_earth_surface_node(node)
+        elif isinstance(node, MidstreetNode):
+            return self._outgoing_midstreet_node(node)
+        else:
+            return []
+
+    def incoming(self, node: AbstractNode) -> list[Edge]:
+        raise NotImplementedError()
 
 
 def main() -> None:
