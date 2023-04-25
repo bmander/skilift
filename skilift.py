@@ -27,7 +27,7 @@ import pandas as pd
 import rasterio
 from dotenv import load_dotenv
 from numpy.typing import NDArray
-from shapely.geometry import LineString, Point
+from shapely import geometry
 from shapely.strtree import STRtree
 
 ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
@@ -42,19 +42,19 @@ StopPattern = tuple[GTFSID, ...]
 
 
 class EdgeProvider(ABC):
-    """Abstract base class for providing edges for a given node."""
+    """Abstract base class for providing edges for a given vertex."""
 
     @abstractmethod
-    def outgoing(self, node: "AbstractNode") -> list["Edge"]:
+    def outgoing(self, vertex: "AbstractVertex") -> list["Edge"]:
         pass
 
     @abstractmethod
-    def incoming(self, node: "AbstractNode") -> list["Edge"]:
+    def incoming(self, vertex: "AbstractVertex") -> list["Edge"]:
         pass
 
 
-class AbstractNode(ABC):
-    """Abstract base node for representing the state of an individual human
+class AbstractVertex(ABC):
+    """Abstract base vertex for representing the state of an individual human
     traveler at some point at a specific point in time. For example an
     implementing subclass "AtStop" might represent a traveler who is waiting
     for a bus at a specific stop. Another subclass "OnBike" might represent a
@@ -73,7 +73,7 @@ class AbstractNode(ABC):
         return hash(self._identity_tuple())
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, AbstractNode):
+        if not isinstance(other, AbstractVertex):
             return False
         return self._identity_tuple() == other._identity_tuple()
 
@@ -83,7 +83,7 @@ class AbstractNode(ABC):
 
 
 class Edge(NamedTuple):
-    node: AbstractNode
+    vertex: AbstractVertex
     weight: float
 
 
@@ -612,95 +612,101 @@ class TransitEdgeProvider(EdgeProvider):
     def __init__(self, feed: GTFSFeed):
         self.feed = feed
 
-    def _at_stop_node_outgoing(self, node: "AtStopNode") -> list[Edge]:
+    def _at_stop_vertex_outgoing(self, vertex: "AtStopVertex") -> list[Edge]:
         outgoing_edges = []
 
         for event in self.feed.find_stop_events(
-            node.stop_id, node.datetime, find_departures=True
+            vertex.stop_id, vertex.datetime, find_departures=True
         ):
-            adj_node = DepartureNode(
+            adj_vertex = DepartureVertex(
                 event.pattern_id,
                 event.service_id,
                 event.row,
                 event.col,
                 event.datetime,
             )
-            weight = float((event.datetime - adj_node.datetime).seconds)
-            edge = Edge(adj_node, weight)
+            weight = float((event.datetime - adj_vertex.datetime).seconds)
+            edge = Edge(adj_vertex, weight)
             outgoing_edges.append(edge)
 
         return outgoing_edges
 
-    def _departure_node_outgoing(self, node: "DepartureNode") -> list[Edge]:
-        timetable = self.feed.timetables[(node.pattern_id, node.service_id)]
+    def _departure_vertex_outgoing(
+        self, vertex: "DepartureVertex"
+    ) -> list[Edge]:
+        timetable = self.feed.timetables[
+            (vertex.pattern_id, vertex.service_id)
+        ]
 
-        departure_time = timetable.departure_times[node.row, node.col]
-        next_arrival_time = timetable.arrival_times[node.row, node.col + 1]
+        departure_time = timetable.departure_times[vertex.row, vertex.col]
+        next_arrival_time = timetable.arrival_times[vertex.row, vertex.col + 1]
         segment_duration = next_arrival_time - departure_time
 
-        arrival_datetime = node.datetime + pd.Timedelta(
+        arrival_datetime = vertex.datetime + pd.Timedelta(
             segment_duration, unit="s"
         )
 
-        adj_node = ArrivalNode(
-            node.pattern_id,
-            node.service_id,
-            node.row,
-            node.col + 1,
+        adj_vertex = ArrivalVertex(
+            vertex.pattern_id,
+            vertex.service_id,
+            vertex.row,
+            vertex.col + 1,
             arrival_datetime,
         )
         weight = float(segment_duration)
-        edge = Edge(adj_node, weight)
+        edge = Edge(adj_vertex, weight)
 
         return [edge]
 
-    def _arrival_node_outgoing(self, node: "ArrivalNode") -> list[Edge]:
+    def _arrival_vertex_outgoing(self, vertex: "ArrivalVertex") -> list[Edge]:
         outgoing_edges = []
 
-        timetable = self.feed.timetables[(node.pattern_id, node.service_id)]
+        timetable = self.feed.timetables[
+            (vertex.pattern_id, vertex.service_id)
+        ]
 
         # make an edge for waiting until departure
-        arrival_time = timetable.arrival_times[node.row, node.col]
-        departure_time = timetable.departure_times[node.row, node.col]
+        arrival_time = timetable.arrival_times[vertex.row, vertex.col]
+        departure_time = timetable.departure_times[vertex.row, vertex.col]
         wait_duration = departure_time - arrival_time
-        departure_node = DepartureNode(
-            node.pattern_id,
-            node.service_id,
-            node.row,
-            node.col,
-            node.datetime + pd.Timedelta(wait_duration, unit="s"),
+        departure_vertex = DepartureVertex(
+            vertex.pattern_id,
+            vertex.service_id,
+            vertex.row,
+            vertex.col,
+            vertex.datetime + pd.Timedelta(wait_duration, unit="s"),
         )
-        departure_edge = Edge(departure_node, float(wait_duration))
+        departure_edge = Edge(departure_vertex, float(wait_duration))
         outgoing_edges.append(departure_edge)
 
         # make an edge for alighting to the stop
-        stop_id = timetable.stop_ids[node.col]
-        at_stop_node = AtStopNode(stop_id, node.datetime)
-        alighting_edge = Edge(at_stop_node, ALIGHTING_WEIGHT)
+        stop_id = timetable.stop_ids[vertex.col]
+        at_stop_vertex = AtStopVertex(stop_id, vertex.datetime)
+        alighting_edge = Edge(at_stop_vertex, ALIGHTING_WEIGHT)
         outgoing_edges.append(alighting_edge)
 
         return outgoing_edges
 
-    def outgoing(self, node: AbstractNode) -> list[Edge]:
-        if isinstance(node, AtStopNode):
-            return self._at_stop_node_outgoing(node)
-        elif isinstance(node, DepartureNode):
-            return self._departure_node_outgoing(node)
-        elif isinstance(node, ArrivalNode):
-            return self._arrival_node_outgoing(node)
+    def outgoing(self, vertex: AbstractVertex) -> list[Edge]:
+        if isinstance(vertex, AtStopVertex):
+            return self._at_stop_vertex_outgoing(vertex)
+        elif isinstance(vertex, DepartureVertex):
+            return self._departure_vertex_outgoing(vertex)
+        elif isinstance(vertex, ArrivalVertex):
+            return self._arrival_vertex_outgoing(vertex)
         else:
             return []
 
-    def incoming(self, node: AbstractNode) -> list[Edge]:
+    def incoming(self, vertex: AbstractVertex) -> list[Edge]:
         raise NotImplementedError()
 
 
-class AtStopNode(AbstractNode):
+class AtStopVertex(AbstractVertex):
     """Represents a passenger not aboard a transit vehicle at a named transit
     stop available to board a transit vehicle.
 
     Available outgoing transitions:
-        - DepartureNode: Board a transit vehicle.
+        - DepartureVertex: Board a transit vehicle.
     """
 
     def __init__(
@@ -715,15 +721,17 @@ class AtStopNode(AbstractNode):
         return (self.stop_id, self.datetime)
 
     def __repr__(self) -> str:
-        return f"AtStopNode(stop_id:{self.stop_id}, datetime:{self.datetime})"
+        return (
+            f"AtStopvertex(stop_id:{self.stop_id}, datetime:{self.datetime})"
+        )
 
 
-class DepartureNode(AbstractNode):
+class DepartureVertex(AbstractVertex):
     """Represents a passenger aboard a transit vehicle at the moment of
     departure from a named transit stop.
 
     Available outgoing transitions:
-        - ArrivalNode: Travel to and then arrive at the
+        - ArrivalVertex: Travel to and then arrive at the
         vehicle's next scheduled stop
     """
 
@@ -752,19 +760,19 @@ class DepartureNode(AbstractNode):
 
     def __repr__(self) -> str:
         return (
-            f"DepartureNode(pattern_id:{self.pattern_id}, "
+            f"DepartureVertex(pattern_id:{self.pattern_id}, "
             f"service_id:{self.service_id}, "
             f"row:{self.row}, col:{self.col}, datetime:{self.datetime})"
         )
 
 
-class ArrivalNode(AbstractNode):
+class ArrivalVertex(AbstractVertex):
     """Represents a passenger aboard a transit vehicle at the moment of arrival
     at a named transit stop.
 
     Available outgoing transitions:
-        - AtStopNode: Alight from the transit vehicle.
-        - DepartureNode: Stay in the vehicle until the moment it departs
+        - AtStopVertex: Alight from the transit vehicle.
+        - DepartureVertex: Stay in the vehicle until the moment it departs
         for the next schedules stop.
     """
 
@@ -793,18 +801,18 @@ class ArrivalNode(AbstractNode):
 
     def __repr__(self) -> str:
         return (
-            f"ArrivalNode(pattern_id:{self.pattern_id}, "
+            f"ArrivalVertex(pattern_id:{self.pattern_id}, "
             f"service_id:{self.service_id}, "
             f"row:{self.row}, col:{self.col}, datetime:{self.datetime})"
         )
 
 
-def get_stop_node(
+def get_stop_vertex(
     feed: GTFSFeed, stop_name: str, datetime: pd.Timestamp
-) -> AtStopNode:
+) -> AtStopVertex:
     stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
 
-    return AtStopNode(stop_id, datetime)
+    return AtStopVertex(stop_id, datetime)
 
 
 class Way(NamedTuple):
@@ -825,8 +833,8 @@ def read_osm(
         filename (str): The path to the OSM file.
 
     Returns:
-        nodes (dict): A dictionary of nodes, keyed by node ID.
-        ways (dict): A dictionary of ways, keyed by way ID.
+        nodes (dict): A dictionary of osm nodes, keyed by node ID.
+        ways (dict): A dictionary of osm ways, keyed by way ID.
     """
     nodes = {}
     ways = {}
@@ -916,7 +924,7 @@ class ElevationRaster:
                 "ElevationRaster must be used in a with statement."
             )
 
-        # get the elevation at the node
+        # get the elevation at the point
         # apply the transform to get the fractional row and column
         row, col = self._file.index(lon, lat, op=lambda x: x)
 
@@ -966,8 +974,8 @@ def get_elevations_for_nodes(
     return node_elevs
 
 
-def get_graph_nodes(ways: dict[int, Way]) -> set[int]:
-    """Get all the graph nodes from the ways. The graph nodes are the nodes
+def get_vertex_nodes(ways: dict[int, Way]) -> set[int]:
+    """Get all the vertex nodes from the ways. The vertex nodes are the nodes
     that are used more than once, or they are the start or end node of a street.
 
     Args:
@@ -977,7 +985,7 @@ def get_graph_nodes(ways: dict[int, Way]) -> set[int]:
         Set: A set of graph nodes.
     """
 
-    graph_nodes = set()
+    vertex_nodes = set()
 
     node_count: Counter[int] = Counter()
     for way in ways.values():
@@ -986,8 +994,8 @@ def get_graph_nodes(ways: dict[int, Way]) -> set[int]:
             continue
 
         # add the start and end nodes
-        graph_nodes.add(way.nds[0])
-        graph_nodes.add(way.nds[-1])
+        vertex_nodes.add(way.nds[0])
+        vertex_nodes.add(way.nds[-1])
 
         # count the number of times a node appears
         node_count.update(way.nds)
@@ -996,14 +1004,14 @@ def get_graph_nodes(ways: dict[int, Way]) -> set[int]:
     intersection_nodes = set(
         node for node, count in node_count.items() if count > 1
     )
-    graph_nodes = graph_nodes.union(intersection_nodes)
+    vertex_nodes = vertex_nodes.union(intersection_nodes)
 
-    return graph_nodes
+    return vertex_nodes
 
 
 def get_node_references(
     ways: dict[int, Way]
-) -> dict[int, set[tuple[int, int]]]:
+) -> dict[int, set[tuple[int, ArrayIndex]]]:
     """Get a dictionary of node references.
 
     Args:
@@ -1013,7 +1021,7 @@ def get_node_references(
         Dict: A dictionary of instances in which a node was used in a way.
             The format is {node_id: {(way_id, node_index)}}"""
 
-    nd_refs: dict[int, set[tuple[int, int]]] = defaultdict(set)
+    nd_refs: dict[int, set[tuple[int, ArrayIndex]]] = defaultdict(set)
 
     for way_id, way in ways.items():
         for i, nd in enumerate(way.nds):
@@ -1022,7 +1030,9 @@ def get_node_references(
     return nd_refs
 
 
-def geodesic_distance_meters(geo_pt: Point, geo_pt2: Point) -> float:
+def geodesic_distance(
+    geo_pt: geometry.Point, geo_pt2: geometry.Point
+) -> float:
     """Compute the geodesic distance in meters between two points on the earth's surface."""
 
     # TODO: this can be vectorized if it ever becomes a bottleneck
@@ -1046,7 +1056,20 @@ def geodesic_distance_meters(geo_pt: Point, geo_pt2: Point) -> float:
     return float(km * 1000.0)
 
 
-class OnEarthSurfaceNode(AbstractNode):
+def geodesic_linestring_length(ls: geometry.LineString) -> float:
+    """Compute the geodesic length of a linestring in meters."""
+
+    length = 0.0
+
+    for i in range(len(ls.coords) - 1):
+        pt1 = geometry.Point(ls.coords[i])
+        pt2 = geometry.Point(ls.coords[i + 1])
+        length += geodesic_distance(pt1, pt2)
+
+    return length
+
+
+class OnEarthSurfaceNode(AbstractVertex):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
@@ -1080,7 +1103,7 @@ class OnEarthSurfaceNode(AbstractNode):
         return f"OnEarthSurfaceNode({self.lon}, {self.lat}, {self.time})"
 
 
-class MidstreetNode(AbstractNode):
+class MidstreetVertex(AbstractVertex):
     """Represents a passenger standing on a street segment."""
 
     def __init__(
@@ -1106,12 +1129,33 @@ class MidstreetNode(AbstractNode):
 
     def __repr__(self) -> str:
         return (
-            f"OnStreetNode({self.way_id}, {self.segment_ix}, "
+            f"MidStreetNode({self.way_id}, {self.segment_ix}, "
             f"{self.linear_ref}, {self.time})"
         )
 
     def as_tuple(self) -> tuple[int, int, float, pd.Timestamp]:
         return (self.way_id, self.segment_ix, self.linear_ref, self.time)
+
+
+class EndStreetVertex(AbstractVertex):
+    def __init__(self, way_id: int, nd_ix: int, datetime: pd.Timestamp):
+        """Initialize the node.
+
+        Args:
+            way_id (int): The ID of the way.
+            nd_ix (int): The index of the node.
+            datetime (pd.Timestamp): The time of the passenger.
+        """
+
+        self.way_id = way_id
+        self.nd_ix = nd_ix
+        self.datetime = datetime
+
+    def __repr__(self) -> str:
+        return f"EndStreetNode({self.way_id}, {self.nd_ix}, {self.datetime})"
+
+    def as_tuple(self) -> tuple[int, int, pd.Timestamp]:
+        return (self.way_id, self.nd_ix, self.datetime)
 
 
 def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
@@ -1162,7 +1206,7 @@ class StreetData:
 
     def _generate_way_segments(
         self,
-    ) -> tuple[list[tuple[int, int]], list[LineString]]:
+    ) -> tuple[list[tuple[int, int]], list[geometry.LineString]]:
         """Generate all the segments in the ways.
 
         This is a part of generating the index that is used to find the closest
@@ -1175,7 +1219,7 @@ class StreetData:
                 pt1 = self.nodes[nd1]
                 pt2 = self.nodes[nd2]
 
-                segment = LineString([pt1, pt2])
+                segment = geometry.LineString([pt1, pt2])
 
                 segment_way_refs.append((way_id, segment_ix))
                 segments.append(segment)
@@ -1199,7 +1243,7 @@ class StreetData:
                 is closest to the location.
         """
 
-        query_pt = Point(lon, lat)
+        query_pt = geometry.Point(lon, lat)
         search_area = query_pt.buffer(search_radius)
         nearby_segment_ids = self.segment_spatial_index.query(search_area)
 
@@ -1223,7 +1267,7 @@ class StreetData:
 
     def get_way_point(
         self, way_id: int, segment_ix: int, linear_ref: float
-    ) -> Point:
+    ) -> geometry.Point:
         """Get the point along a way at a particular linear reference.
 
         Args:
@@ -1248,7 +1292,7 @@ class StreetData:
         pt1 = self.nodes[nd1]
         pt2 = self.nodes[nd2]
 
-        ls = LineString([pt1, pt2])
+        ls = geometry.LineString([pt1, pt2])
 
         return ls.interpolate(linear_ref, normalized=True)
 
@@ -1293,6 +1337,18 @@ class StreetData:
         # if we get here, we've reached the end of the way
         return end
 
+    def is_oneway(self, way_id: int) -> bool:
+        """Check if a way is one-way.
+
+        Args:
+            way_id (int): The ID of the way.
+
+        Returns:
+            bool: True if the way is one-way, False otherwise.
+        """
+
+        return self.ways[way_id].tags.get("oneway") in ["yes", "true", "1"]
+
 
 class StreetEdgeProvider(EdgeProvider):
     def __init__(self, osm_data: StreetData):
@@ -1301,8 +1357,7 @@ class StreetEdgeProvider(EdgeProvider):
     def _outgoing_on_earth_surface_node(
         self, node: OnEarthSurfaceNode
     ) -> list[Edge]:
-        edges: list[Edge] = []
-
+        # get nearest segment
         segment = self.osm_data.get_nearest_segment(node.lon, node.lat)
 
         if segment is None:
@@ -1310,48 +1365,99 @@ class StreetEdgeProvider(EdgeProvider):
 
         way_id, segment_ix, linear_ref = segment
 
+        # get closest point on nearest segment
         closest_way_pt = self.osm_data.get_way_point(
             way_id, segment_ix, linear_ref
         )
-        distance = geodesic_distance_meters(
-            Point(node.lon, node.lat), closest_way_pt
+        distance = geodesic_distance(
+            geometry.Point(node.lon, node.lat), closest_way_pt
         )
 
+        # convert distance to time and utility
         dt = distance / WALKING_SPEED
         weight = dt * WALKING_RELUCTANCE
 
-        adj_node = MidstreetNode(
+        # make adjacent node
+        adj_vertex = MidstreetVertex(
             way_id,
             segment_ix,
             linear_ref,
             node.time + pd.Timedelta(seconds=dt),
         )
 
-        return [Edge(adj_node, weight)]
+        # return a single edge
+        return [Edge(adj_vertex, weight)]
 
-    def _outgoing_midstreet_node(self, node: MidstreetNode) -> list[Edge]:
+    def _outgoing_midstreet_node(self, vertex: MidstreetVertex) -> list[Edge]:
         edges: list[Edge] = []
 
-        current_point = self.osm_data.get_way_point(
-            node.way_id, node.segment_ix, node.linear_ref
+        midpoint = self.osm_data.get_way_point(
+            vertex.way_id, vertex.segment_ix, vertex.linear_ref
         )
 
-        v0 = self.osm_data.next_vertex_node(node.way_id, node.segment_ix + 1)
+        # get forward segment
+        seg_start = vertex.segment_ix + 1
+        seg_end = self.osm_data.next_vertex_node(vertex.way_id, seg_start)
 
-        nds = self.osm_data.ways[node.way_id].nds[v0:]
-        ls = [self.osm_data.nodes[nd] for nd in nds]
+        # include both endpoints
+        nds = self.osm_data.ways[vertex.way_id].nds[seg_start : seg_end + 1]
+
+        # compute distance and time
+        ls = geometry.LineString(
+            [midpoint] + [self.osm_data.nodes[nd] for nd in nds]
+        )
+
+        distance = geodesic_linestring_length(ls)
+        dt = distance / WALKING_SPEED
+        weight = dt * WALKING_RELUCTANCE
+
+        # make vertex
+        forward_vertex = EndStreetVertex(
+            vertex.way_id,
+            seg_end,
+            vertex.time + pd.Timedelta(seconds=dt),
+        )
+        edges.append(Edge(forward_vertex, weight))
+
+        if not self.osm_data.is_oneway(vertex.way_id):
+            # get backward segment
+            seg_start = vertex.segment_ix
+            seg_end = self.osm_data.next_vertex_node(
+                vertex.way_id, seg_start, search_forward=False
+            )
+
+            nds = self.osm_data.ways[vertex.way_id].nds[
+                seg_start : seg_end - 1 : -1
+            ]
+
+            # compute distance and time
+            ls = geometry.LineString(
+                [midpoint] + [self.osm_data.nodes[nd] for nd in nds]
+            )
+
+            distance = geodesic_linestring_length(ls)
+            dt = distance / WALKING_SPEED
+            weight = dt * WALKING_RELUCTANCE
+
+            # make vertex
+            reverse_vertex = EndStreetVertex(
+                vertex.way_id,
+                seg_end,
+                vertex.time + pd.Timedelta(seconds=dt),
+            )
+            edges.append(Edge(reverse_vertex, weight))
 
         return edges
 
-    def outgoing(self, node: AbstractNode) -> list[Edge]:
+    def outgoing(self, node: AbstractVertex) -> list[Edge]:
         if isinstance(node, OnEarthSurfaceNode):
             return self._outgoing_on_earth_surface_node(node)
-        elif isinstance(node, MidstreetNode):
+        elif isinstance(node, MidstreetVertex):
             return self._outgoing_midstreet_node(node)
         else:
             return []
 
-    def incoming(self, node: AbstractNode) -> list[Edge]:
+    def incoming(self, node: AbstractVertex) -> list[Edge]:
         raise NotImplementedError()
 
 
