@@ -17,6 +17,7 @@ from typing import (
     Self,
     Sequence,
     Type,
+    TypeVar,
 )
 from zipfile import ZipFile
 
@@ -35,6 +36,9 @@ WALKING_RELUCTANCE = 1.0  # utils per second of walking
 
 SecondsSinceMidnight = int
 GTFSID = Hashable
+ArrayIndex = int
+TimetableId = tuple[ArrayIndex, GTFSID]  # stoppatternid, serviceid
+StopPattern = tuple[GTFSID, ...]
 
 
 class EdgeProvider(ABC):
@@ -86,15 +90,34 @@ class Edge(NamedTuple):
 class TimetableEvent(NamedTuple):
     """Represents an event in a GTFS timetable."""
 
+    row: ArrayIndex  # the index of the trip
+    col: ArrayIndex  # the index of the stop
+    datetime: pd.Timestamp  # datetime of the event
+
+
+class TransitEvent(NamedTuple):
+    """Represents an event in a GTFS timetable."""
+
     pattern_id: int
     service_id: GTFSID
-    row: int  # the index of the trip
-    col: int  # the index of the stop
+    row: ArrayIndex  # the index of the trip
+    col: ArrayIndex  # the index of the stop
     datetime: pd.Timestamp  # datetime of the event
 
 
 class Timetable:
-    """Represents a GTFS timetable."""
+    """Represents a GTFS timetable.
+
+    A GTFS timetable is a 2d array of times, where each row represents a trip
+    and each column represents a stop. The times are in seconds since midnight.
+    All trips in the timetable must have the exact same sequence of stops, and
+    no trip may overtake another trip.
+
+    Colleting trips into a timetable is useful because in GTFS, all the trips
+    in a route don't necessarily have the same stops, which means that to
+    query adjacent stops you'd have to look at every trip. With all the trips
+    in a route grouped into timetables, you only have to look at one relevant
+    trip in each timetable to get adjacent stops."""
 
     def __init__(
         self,
@@ -109,7 +132,7 @@ class Timetable:
         self.departure_times = departure_times
 
     def _lookup_departure(
-        self, stop_idx: int, query_time: int
+        self, stop_idx: ArrayIndex, query_time: SecondsSinceMidnight
     ) -> tuple[int, SecondsSinceMidnight] | None:
         # if the stop_idx is the last stop, then there is no departure
         if stop_idx == len(self.stop_ids) - 1:
@@ -133,7 +156,7 @@ class Timetable:
         return trip_idx, event_time
 
     def _lookup_arrival(
-        self, stop_idx: int, query_time: int
+        self, stop_idx: ArrayIndex, query_time: SecondsSinceMidnight
     ) -> tuple[int, SecondsSinceMidnight] | None:
         # if the stop_idx is the first stop, then there is no arrival
         if stop_idx == 0:
@@ -159,19 +182,19 @@ class Timetable:
         event_time = self.arrival_times[trip_idx, stop_idx]
         return trip_idx, event_time
 
-    def find_stop_events(
+    def find_timetable_events(
         self,
         stop_id: Hashable,
-        query_time: int,
+        query_time: SecondsSinceMidnight,
         find_departure: bool = True,
-    ) -> list[tuple[int, int, SecondsSinceMidnight]]:
+    ) -> list[TimetableEvent]:
         """Looks up the next event (arrival or departure) for a given stop at
         a given time. Because a trip may visit a stop multiple times, an array
         of events is returned.
 
         Args:
             stop_id: ID of the stop to lookup.
-            query_time: Time to lookup, in seconds since midnight.
+            query_time: Time at lookup.
             find_departure: If True, lookup the next departure event. If False,
                 lookup the previous arrival event.
 
@@ -179,7 +202,7 @@ class Timetable:
             A tuple of table row, column, and time for each event.
         """
 
-        events = []
+        events: list[TimetableEvent] = []
 
         # Get the indices of the stops in the timetable that match the stop_id.
         # It is possible that a stop_id appears multiple times in the
@@ -194,14 +217,18 @@ class Timetable:
 
             if event is not None:
                 trip_idx, event_time = event
-                events.append((trip_idx, stop_idx, event_time))
+                events.append(TimetableEvent(trip_idx, stop_idx, event_time))
 
         return events
 
 
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+
+
 def expand_pairs(
-    lst: Iterable[tuple[Any, Iterable[Any]]]
-) -> Generator[tuple[Any, Any], None, None]:
+    lst: Iterable[tuple[T1, Iterable[T2]]]
+) -> Generator[tuple[T1, T2], None, None]:
     """Expands a list of pairs.
 
     Args:
@@ -230,7 +257,7 @@ def parse_gtfs_time(time_str: str) -> int:
     return int(h) * 3600 + int(m) * 60 + int(s)
 
 
-def seconds_since_midnight(time: pd.Timestamp) -> int:
+def seconds_since_midnight(time: pd.Timestamp) -> SecondsSinceMidnight:
     """Converts a pandas Timestamp into seconds since midnight.
 
     Args:
@@ -295,23 +322,25 @@ class GTFSFeed:
 
     def _augment_with_stop_patterns(self) -> None:
         # get trip_id -> stop pattern
-        trip_stop_patterns = (
+        trip_stop_patterns: dict[GTFSID, StopPattern] = (
             self.stop_times.sort_values("stop_sequence")
             .groupby(["trip_id"])
             .agg({"stop_id": tuple})
-            .to_dict(orient="index")
-        )
+            .to_dict()["stop_id"]
+        )  # dict of trip_id -> stop_pattern
 
         # reverse to get stop_pattern -> trip_ids
-        stop_pattern_trips_collector = defaultdict(set)
+        stop_pattern_trips_collector: dict[
+            StopPattern, set[GTFSID]
+        ] = defaultdict(set)
         for trip_id, stop_pattern in trip_stop_patterns.items():
-            stop_pattern_trips_collector[stop_pattern["stop_id"]].add(trip_id)
-        stop_pattern_trips: dict[Any, set[Any]] = dict(
+            stop_pattern_trips_collector[stop_pattern].add(trip_id)
+        stop_pattern_trips: dict[StopPattern, set[GTFSID]] = dict(
             stop_pattern_trips_collector
         )
 
         # create stop_pattern_id -> ordered list of stops
-        self.stop_patterns = dict(
+        self.stop_patterns: dict[ArrayIndex, StopPattern] = dict(
             zip(range(len(stop_pattern_trips)), stop_pattern_trips.keys())
         )
 
@@ -332,13 +361,15 @@ class GTFSFeed:
         )
 
         # create dict of stop_id -> stop_pattern_ids
-        stop_pattern_ids = defaultdict(set)
+        stop_pattern_ids: dict[GTFSID, set[ArrayIndex]] = defaultdict(set)
         for stop_pattern_id, stop_pattern in self.stop_patterns.items():
             for stop_id in stop_pattern:
                 stop_pattern_ids[stop_id].add(stop_pattern_id)
-        self.stop_pattern_ids = dict(stop_pattern_ids)
+        self.stop_pattern_ids: dict[GTFSID, set[ArrayIndex]] = dict(
+            stop_pattern_ids
+        )
 
-    def _get_timetables(self) -> dict[tuple[int, Hashable], Timetable]:
+    def _get_timetables(self) -> dict[TimetableId, Timetable]:
         timetables = {}
 
         def grouper_func(group: pd.DataFrame) -> pd.DataFrame:
@@ -392,7 +423,7 @@ class GTFSFeed:
 
     def _expand_service_dates(
         self, zf: ZipFile
-    ) -> dict[datetime.date, set[str]]:
+    ) -> dict[datetime.date, set[GTFSID]]:
         """Expands the calendar.txt and calendar_dates.txt files into a
         dictionary of dates to service_ids.
 
@@ -505,10 +536,10 @@ class GTFSFeed:
 
     def find_stop_events(
         self,
-        stop_id: Hashable,
+        stop_id: GTFSID,
         query_datetime: pd.Timestamp,
         find_departures: bool = True,
-    ) -> list[TimetableEvent]:
+    ) -> list[TransitEvent]:
         """Returns a list of timetable events (either arrivals or departures)
         at the given stop corresponding to the given time. If after is True,
         only returns events at or after; if after is False, only returns events
@@ -554,15 +585,23 @@ class GTFSFeed:
 
                 timetable = self.timetables[key]
 
-                for i, j, event_time in timetable.find_stop_events(
+                for (
+                    trip_ix,
+                    stop_ix,
+                    event_time,
+                ) in timetable.find_timetable_events(
                     stop_id, query_time, find_departures
                 ):
                     event_datetime = pd.Timestamp(
                         query_date, tz=query_datetime.tz
                     ) + pd.Timedelta(event_time, unit="s")
 
-                    event = TimetableEvent(
-                        stop_pattern_id, service_id, i, j, event_datetime
+                    event = TransitEvent(
+                        stop_pattern_id,
+                        service_id,
+                        trip_ix,
+                        stop_ix,
+                        event_datetime,
                     )
                     events.append(event)
 
