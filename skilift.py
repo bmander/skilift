@@ -846,6 +846,9 @@ def read_osm(
             if "highway" not in w.tags:
                 return
 
+            if w.tags.get("highway") in {"motorway", "motorway_link"}:
+                return
+
             nds = [n.ref for n in w.nodes]
             way_nds.update(nds)
             tags = dict(w.tags)
@@ -1137,8 +1140,10 @@ class MidstreetVertex(AbstractVertex):
         return (self.way_id, self.segment_ix, self.linear_ref, self.time)
 
 
-class EndStreetVertex(AbstractVertex):
-    def __init__(self, way_id: int, nd_ix: int, datetime: pd.Timestamp):
+class StreetNodeVertex(AbstractVertex):
+    """Represents the passenger standing on a street at a node."""
+
+    def __init__(self, way_id: int, nd_ix: int, time: pd.Timestamp):
         """Initialize the node.
 
         Args:
@@ -1149,13 +1154,13 @@ class EndStreetVertex(AbstractVertex):
 
         self.way_id = way_id
         self.nd_ix = nd_ix
-        self.datetime = datetime
+        self.time = time
 
     def __repr__(self) -> str:
-        return f"EndStreetNode({self.way_id}, {self.nd_ix}, {self.datetime})"
+        return f"StreetNodeVertex({self.way_id}, {self.nd_ix}, {self.time})"
 
     def as_tuple(self) -> tuple[int, int, pd.Timestamp]:
-        return (self.way_id, self.nd_ix, self.datetime)
+        return (self.way_id, self.nd_ix, self.time)
 
 
 def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
@@ -1317,7 +1322,7 @@ class StreetData:
 
         way = self.ways[way_id]
 
-        if nd_index < 0 or nd_index > len(way.nds) - 1:
+        if nd_index < 0 or nd_index >= len(way.nds):
             raise ValueError(
                 f"Node index {nd_index} is out of range for way {way_id}"
             )
@@ -1412,7 +1417,7 @@ class StreetEdgeProvider(EdgeProvider):
         weight = dt * WALKING_RELUCTANCE
 
         # make vertex
-        forward_vertex = EndStreetVertex(
+        forward_vertex = StreetNodeVertex(
             vertex.way_id,
             seg_end,
             vertex.time + pd.Timedelta(seconds=dt),
@@ -1426,8 +1431,9 @@ class StreetEdgeProvider(EdgeProvider):
                 vertex.way_id, seg_start, search_forward=False
             )
 
+            inclusive_seg_end = seg_end - 1 if seg_end != 0 else None
             nds = self.osm_data.ways[vertex.way_id].nds[
-                seg_start : seg_end - 1 : -1
+                seg_start:inclusive_seg_end:-1
             ]
 
             # compute distance and time
@@ -1440,7 +1446,7 @@ class StreetEdgeProvider(EdgeProvider):
             weight = dt * WALKING_RELUCTANCE
 
             # make vertex
-            reverse_vertex = EndStreetVertex(
+            reverse_vertex = StreetNodeVertex(
                 vertex.way_id,
                 seg_end,
                 vertex.time + pd.Timedelta(seconds=dt),
