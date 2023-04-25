@@ -1123,7 +1123,7 @@ def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
         prev = item
 
 
-class ElevationAwareStreetDataset:
+class StreetData:
     """Holds all the context needed to generate adjacent edges in a
     street network. The context includes street and elevation data."""
 
@@ -1295,7 +1295,7 @@ class ElevationAwareStreetDataset:
 
 
 class StreetEdgeProvider(EdgeProvider):
-    def __init__(self, osm_data: ElevationAwareStreetDataset):
+    def __init__(self, osm_data: StreetData):
         self.osm_data = osm_data
 
     def _outgoing_on_earth_surface_node(
@@ -1304,29 +1304,30 @@ class StreetEdgeProvider(EdgeProvider):
         edges: list[Edge] = []
 
         segment = self.osm_data.get_nearest_segment(node.lon, node.lat)
-        if segment is not None:
-            way_id, segment_ix, linear_ref = segment
 
-            closest_way_pt = self.osm_data.get_way_point(
-                way_id, segment_ix, linear_ref
-            )
-            distance = geodesic_distance_meters(
-                Point(node.lon, node.lat), closest_way_pt
-            )
+        if segment is None:
+            return []
 
-            dt = distance / WALKING_SPEED
-            weight = dt * WALKING_RELUCTANCE
+        way_id, segment_ix, linear_ref = segment
 
-            adj_node = MidstreetNode(
-                way_id,
-                segment_ix,
-                linear_ref,
-                node.time + pd.Timedelta(seconds=dt),
-            )
+        closest_way_pt = self.osm_data.get_way_point(
+            way_id, segment_ix, linear_ref
+        )
+        distance = geodesic_distance_meters(
+            Point(node.lon, node.lat), closest_way_pt
+        )
 
-            edges.append(Edge(adj_node, weight))
+        dt = distance / WALKING_SPEED
+        weight = dt * WALKING_RELUCTANCE
 
-        return edges
+        adj_node = MidstreetNode(
+            way_id,
+            segment_ix,
+            linear_ref,
+            node.time + pd.Timedelta(seconds=dt),
+        )
+
+        return [Edge(adj_node, weight)]
 
     def _outgoing_midstreet_node(self, node: MidstreetNode) -> list[Edge]:
         edges: list[Edge] = []
