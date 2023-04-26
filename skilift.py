@@ -30,15 +30,21 @@ from numpy.typing import NDArray
 from shapely import geometry
 from shapely.strtree import STRtree
 
+# constants
 ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
 WALKING_SPEED = 1.2  # meters per second
 WALKING_RELUCTANCE = 1.0  # utils per second of walking
 
+# types
 SecondsSinceMidnight = int
 GTFSID = Hashable
-ArrayIndex = int
+ArrayIndex = int  # integer between 0 and length of the array-1
+SegmentIndex = int  # integer between 0 and length of the array-2
 TimetableId = tuple[ArrayIndex, GTFSID]  # stoppatternid, serviceid
 StopPattern = tuple[GTFSID, ...]
+WayId = int
+NodeId = int
+NodeRef = tuple[WayId, ArrayIndex]
 
 
 class EdgeProvider(ABC):
@@ -586,8 +592,8 @@ class GTFSFeed:
                 timetable = self.timetables[key]
 
                 for (
-                    trip_ix,
-                    stop_ix,
+                    trip_index,
+                    stop_index,
                     event_time,
                 ) in timetable.find_timetable_events(
                     stop_id, query_time, find_departures
@@ -599,8 +605,8 @@ class GTFSFeed:
                     event = TransitEvent(
                         stop_pattern_id,
                         service_id,
-                        trip_ix,
-                        stop_ix,
+                        trip_index,
+                        stop_index,
                         event_datetime,
                     )
                     events.append(event)
@@ -820,12 +826,17 @@ class Way(NamedTuple):
     tags: dict[str, str]
 
 
+class Node(NamedTuple):
+    lon: float
+    lat: float
+
+
 CartesianPoint = tuple[float, float]
 
 
 def read_osm(
     filename: str,
-) -> tuple[dict[int, CartesianPoint], dict[int, Way]]:
+) -> tuple[dict[NodeId, Node], dict[WayId, Way]]:
     """
     Read an OSM file and return a dictionary of nodes and ways.
 
@@ -836,8 +847,8 @@ def read_osm(
         nodes (dict): A dictionary of osm nodes, keyed by node ID.
         ways (dict): A dictionary of osm ways, keyed by way ID.
     """
-    nodes = {}
-    ways = {}
+    nodes: dict[NodeId, Node] = {}
+    ways: dict[WayId, Way] = {}
 
     way_nds = set()
 
@@ -862,7 +873,7 @@ def read_osm(
         def node(self, n: osmium.osm.Node) -> None:
             # only keep nodes that are part of a highway
             if n.id in way_nds:
-                nodes[n.id] = (n.location.lon, n.location.lat)
+                nodes[n.id] = Node(n.location.lon, n.location.lat)
 
     n = NodeHandler()
     n.apply_file(filename)
@@ -955,8 +966,8 @@ class ElevationRaster:
 
 
 def get_elevations_for_nodes(
-    elev_raster_fn: str, nodes: dict[int, CartesianPoint]
-) -> dict[int, float]:
+    elev_raster_fn: str, nodes: dict[NodeId, Node]
+) -> dict[NodeId, float]:
     """Get the elevation of each node in a list of nodes.
 
     Args:
@@ -1012,9 +1023,7 @@ def get_vertex_nodes(ways: dict[int, Way]) -> set[int]:
     return vertex_nodes
 
 
-def get_node_references(
-    ways: dict[int, Way]
-) -> dict[int, set[tuple[int, ArrayIndex]]]:
+def get_node_references(ways: dict[WayId, Way]) -> dict[NodeId, set[NodeRef]]:
     """Get a dictionary of node references.
 
     Args:
@@ -1112,7 +1121,7 @@ class MidstreetVertex(AbstractVertex):
     def __init__(
         self,
         way_id: int,
-        segment_ix: int,
+        segment_index: int,
         linear_ref: float,
         time: pd.Timestamp,
     ):
@@ -1120,47 +1129,51 @@ class MidstreetVertex(AbstractVertex):
 
         Args:
             way_id (int): The ID of the way.
-            segment_ix (int): The index of the segment.
+            segment_index (int): The index of the segment.
             linear_ref (float): The linear reference along the segment.
             time (pd.Timestamp): The time of the passenger.
         """
 
         self.way_id = way_id
-        self.segment_ix = segment_ix
+        self.segment_index = segment_index
         self.linear_ref = linear_ref
         self.time = time
 
     def __repr__(self) -> str:
         return (
-            f"MidStreetNode({self.way_id}, {self.segment_ix}, "
+            f"MidStreetNode({self.way_id}, {self.segment_index}, "
             f"{self.linear_ref}, {self.time})"
         )
 
     def as_tuple(self) -> tuple[int, int, float, pd.Timestamp]:
-        return (self.way_id, self.segment_ix, self.linear_ref, self.time)
+        return (self.way_id, self.segment_index, self.linear_ref, self.time)
 
 
 class StreetNodeVertex(AbstractVertex):
     """Represents the passenger standing on a street at a node."""
 
-    def __init__(self, way_id: int, nd_ix: int, time: pd.Timestamp):
+    def __init__(
+        self, way_id: WayId, node_index: ArrayIndex, time: pd.Timestamp
+    ):
         """Initialize the node.
 
         Args:
             way_id (int): The ID of the way.
-            nd_ix (int): The index of the node.
+            node_index (int): The index of the node.
             datetime (pd.Timestamp): The time of the passenger.
         """
 
         self.way_id = way_id
-        self.nd_ix = nd_ix
+        self.node_index = node_index
         self.time = time
 
     def __repr__(self) -> str:
-        return f"StreetNodeVertex({self.way_id}, {self.nd_ix}, {self.time})"
+        return (
+            f"StreetNodeVertex({self.way_id}, {self.node_index}, {self.time})"
+        )
 
     def as_tuple(self) -> tuple[int, int, pd.Timestamp]:
-        return (self.way_id, self.nd_ix, self.time)
+        return (self.way_id, self.node_index, self.time)
 
 
 def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
@@ -1211,29 +1224,29 @@ class StreetData:
 
     def _generate_way_segments(
         self,
-    ) -> tuple[list[tuple[int, int]], list[geometry.LineString]]:
+    ) -> tuple[list[tuple[WayId, SegmentIndex]], list[geometry.LineString]]:
         """Generate all the segments in the ways.
 
         This is a part of generating the index that is used to find the closest
         way to a particular location."""
 
-        segment_way_refs = []
+        segment_way_refs: list[tuple[WayId, SegmentIndex]] = []
         segments = []
         for way_id, way in self.ways.items():
-            for segment_ix, (nd1, nd2) in enumerate(cons(way.nds)):
+            for segment_index, (nd1, nd2) in enumerate(cons(way.nds)):
                 pt1 = self.nodes[nd1]
                 pt2 = self.nodes[nd2]
 
                 segment = geometry.LineString([pt1, pt2])
 
-                segment_way_refs.append((way_id, segment_ix))
+                segment_way_refs.append((way_id, segment_index))
                 segments.append(segment)
 
         return segment_way_refs, segments
 
     def get_nearest_segment(
         self, lon: float, lat: float, search_radius: float = 0.001
-    ) -> tuple[int, int, float] | None:
+    ) -> tuple[WayId, ArrayIndex, float] | None:
         """Get the nearest segment to a particular location.
 
         Args:
@@ -1271,13 +1284,13 @@ class StreetData:
         return way_id, segment_index, distance_along_segment
 
     def get_way_point(
-        self, way_id: int, segment_ix: int, linear_ref: float
+        self, way_id: WayId, segment_index: ArrayIndex, linear_ref: float
     ) -> geometry.Point:
         """Get the point along a way at a particular linear reference.
 
         Args:
-            way_id (int): The ID of the way.
-            segment_ix (int): The index of the segment in the way.
+            way_id (WayId): The ID of the way.
+            segment_index (int): The index of the segment in the way.
             linear_ref (float): The linear reference along the segment.
 
         Returns:
@@ -1286,13 +1299,13 @@ class StreetData:
 
         way = self.ways[way_id]
 
-        if segment_ix < 0 or segment_ix >= len(way.nds) - 1:
+        if segment_index < 0 or segment_index >= len(way.nds) - 1:
             raise ValueError(
-                f"Segment index {segment_ix} is out of range for way {way_id}"
+                f"Segment index {segment_index} is out of range for way {way_id}"
             )
 
-        nd1 = way.nds[segment_ix]
-        nd2 = way.nds[segment_ix + 1]
+        nd1 = way.nds[segment_index]
+        nd2 = way.nds[segment_index + 1]
 
         pt1 = self.nodes[nd1]
         pt2 = self.nodes[nd2]
@@ -1301,8 +1314,11 @@ class StreetData:
 
         return ls.interpolate(linear_ref, normalized=True)
 
-    def next_vertex_node(
-        self, way_id: int, nd_index: int, search_forward: bool = True
+    def adj_vertex_node(
+        self,
+        way_id: WayId,
+        node_index: ArrayIndex,
+        search_forward: bool = True,
     ) -> int:
         """Get the position in the way of the next vertex node. A vertex node
         is a node that is either referenced by a way more than once, or is the
@@ -1311,7 +1327,7 @@ class StreetData:
 
         Args:
             way_id (int): The ID of the way.
-            nd_index (int): The index of the node in the way.
+            node_index (int): The index of the node in the way.
             search_forward (bool, optional): If true, finds the next vertex
                 node. If false, finds the previous vertex node. Defaults to
                 True.
@@ -1322,9 +1338,9 @@ class StreetData:
 
         way = self.ways[way_id]
 
-        if nd_index < 0 or nd_index >= len(way.nds):
+        if node_index < 0 or node_index >= len(way.nds):
             raise ValueError(
-                f"Node index {nd_index} is out of range for way {way_id}"
+                f"Node index {node_index} is out of range for way {way_id}"
             )
 
         if search_forward:
@@ -1334,7 +1350,7 @@ class StreetData:
             step = -1
             end = 0
 
-        for i in range(nd_index, end, step):
+        for i in range(node_index, end, step):
             nd = way.nds[i]
             if len(self.node_refs[nd]) > 1:
                 return i
@@ -1342,7 +1358,7 @@ class StreetData:
         # if we get here, we've reached the end of the way
         return end
 
-    def is_oneway(self, way_id: int) -> bool:
+    def is_oneway(self, way_id: WayId) -> bool:
         """Check if a way is one-way.
 
         Args:
@@ -1359,7 +1375,7 @@ class StreetEdgeProvider(EdgeProvider):
     def __init__(self, osm_data: StreetData):
         self.osm_data = osm_data
 
-    def _outgoing_on_earth_surface_node(
+    def _outgoing_on_earth_surface_vertex(
         self, node: OnEarthSurfaceNode
     ) -> list[Edge]:
         # get nearest segment
@@ -1368,11 +1384,11 @@ class StreetEdgeProvider(EdgeProvider):
         if segment is None:
             return []
 
-        way_id, segment_ix, linear_ref = segment
+        way_id, segment_index, linear_ref = segment
 
         # get closest point on nearest segment
         closest_way_pt = self.osm_data.get_way_point(
-            way_id, segment_ix, linear_ref
+            way_id, segment_index, linear_ref
         )
         distance = geodesic_distance(
             geometry.Point(node.lon, node.lat), closest_way_pt
@@ -1385,7 +1401,7 @@ class StreetEdgeProvider(EdgeProvider):
         # make adjacent node
         adj_vertex = MidstreetVertex(
             way_id,
-            segment_ix,
+            segment_index,
             linear_ref,
             node.time + pd.Timedelta(seconds=dt),
         )
@@ -1393,16 +1409,18 @@ class StreetEdgeProvider(EdgeProvider):
         # return a single edge
         return [Edge(adj_vertex, weight)]
 
-    def _outgoing_midstreet_node(self, vertex: MidstreetVertex) -> list[Edge]:
+    def _outgoing_midstreet_vertex(
+        self, vertex: MidstreetVertex
+    ) -> list[Edge]:
         edges: list[Edge] = []
 
         midpoint = self.osm_data.get_way_point(
-            vertex.way_id, vertex.segment_ix, vertex.linear_ref
+            vertex.way_id, vertex.segment_index, vertex.linear_ref
         )
 
         # get forward segment
-        seg_start = vertex.segment_ix + 1
-        seg_end = self.osm_data.next_vertex_node(vertex.way_id, seg_start)
+        seg_start = vertex.segment_index + 1
+        seg_end = self.osm_data.adj_vertex_node(vertex.way_id, seg_start)
 
         # include both endpoints
         nds = self.osm_data.ways[vertex.way_id].nds[seg_start : seg_end + 1]
@@ -1426,8 +1444,8 @@ class StreetEdgeProvider(EdgeProvider):
 
         if not self.osm_data.is_oneway(vertex.way_id):
             # get backward segment
-            seg_start = vertex.segment_ix
-            seg_end = self.osm_data.next_vertex_node(
+            seg_start = vertex.segment_index
+            seg_end = self.osm_data.adj_vertex_node(
                 vertex.way_id, seg_start, search_forward=False
             )
 
@@ -1455,15 +1473,38 @@ class StreetEdgeProvider(EdgeProvider):
 
         return edges
 
-    def outgoing(self, node: AbstractVertex) -> list[Edge]:
-        if isinstance(node, OnEarthSurfaceNode):
-            return self._outgoing_on_earth_surface_node(node)
-        elif isinstance(node, MidstreetVertex):
-            return self._outgoing_midstreet_node(node)
+    def _outoing_street_node_vertex(
+        self, vertex: StreetNodeVertex
+    ) -> list[Edge]:
+        edges: list[Edge] = []
+
+        nd = self.osm_data.ways[vertex.way_id].nds[vertex.node_index]
+
+        # for each referenced way
+        for way_id, node_index in self.osm_data.node_refs[nd]:
+            way = self.osm_data.ways[way_id]
+
+            # get forward segment
+            if node_index < len(way.nds) - 1:
+                pass
+
+            # get reverse segment
+            if not self.osm_data.is_oneway(way_id):
+                pass
+
+        return edges
+
+    def outgoing(self, vertex: AbstractVertex) -> list[Edge]:
+        if isinstance(vertex, OnEarthSurfaceNode):
+            return self._outgoing_on_earth_surface_vertex(vertex)
+        elif isinstance(vertex, MidstreetVertex):
+            return self._outgoing_midstreet_vertex(vertex)
+        elif isinstance(vertex, StreetNodeVertex):
+            return self._outoing_street_node_vertex(vertex)
         else:
             return []
 
-    def incoming(self, node: AbstractVertex) -> list[Edge]:
+    def incoming(self, vertex: AbstractVertex) -> list[Edge]:
         raise NotImplementedError()
 
 
