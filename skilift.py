@@ -152,16 +152,16 @@ class Timetable:
         self.departure_times = departure_times
 
     def _lookup_departure(
-        self, stop_idx: ArrayIndex, query_time: SecondsSinceMidnight
+        self, stop_index: ArrayIndex, query_time: SecondsSinceMidnight
     ) -> tuple[int, SecondsSinceMidnight] | None:
-        # if the stop_idx is the last stop, then there is no departure
-        if stop_idx == len(self.stop_ids) - 1:
+        # if the stop_index is the last stop, then there is no departure
+        if stop_index == len(self.stop_ids) - 1:
             return None
 
         # get the index of the first trip that is >= the time
-        trip_idx = int(
+        trip_index = int(
             np.searchsorted(
-                self.departure_times[:, stop_idx],
+                self.departure_times[:, stop_index],
                 query_time,
                 side="left",
             )
@@ -169,24 +169,24 @@ class Timetable:
 
         # if the time is after the last departure, then there is no
         # departure
-        if trip_idx == len(self.departure_times):
+        if trip_index == len(self.departure_times):
             return None
 
-        event_time = self.departure_times[trip_idx, stop_idx]
-        return trip_idx, event_time
+        event_time = self.departure_times[trip_index, stop_index]
+        return trip_index, event_time
 
     def _lookup_arrival(
-        self, stop_idx: ArrayIndex, query_time: SecondsSinceMidnight
+        self, stop_index: ArrayIndex, query_time: SecondsSinceMidnight
     ) -> tuple[int, SecondsSinceMidnight] | None:
-        # if the stop_idx is the first stop, then there is no arrival
-        if stop_idx == 0:
+        # if the stop_index is the first stop, then there is no arrival
+        if stop_index == 0:
             return None
 
         # get the index of the first trip that is <= the time
-        trip_idx = (
+        trip_index = (
             int(
                 np.searchsorted(
-                    self.departure_times[:, stop_idx],
+                    self.departure_times[:, stop_index],
                     query_time,
                     side="right",
                 )
@@ -196,11 +196,11 @@ class Timetable:
 
         # if the time is before the first departure, then there is no
         # arrival
-        if trip_idx == -1:
+        if trip_index == -1:
             return None
 
-        event_time = self.arrival_times[trip_idx, stop_idx]
-        return trip_idx, event_time
+        event_time = self.arrival_times[trip_index, stop_index]
+        return trip_index, event_time
 
     def find_timetable_events(
         self,
@@ -227,17 +227,19 @@ class Timetable:
         # Get the indices of the stops in the timetable that match the stop_id.
         # It is possible that a stop_id appears multiple times in the
         # timetable.
-        stop_idxs = np.flatnonzero(self.stop_ids == stop_id)
+        stop_indices = np.flatnonzero(self.stop_ids == stop_id)
 
-        for stop_idx in stop_idxs:
+        for stop_index in stop_indices:
             if find_departure:
-                event = self._lookup_departure(stop_idx, query_time)
+                event = self._lookup_departure(stop_index, query_time)
             else:
-                event = self._lookup_arrival(stop_idx, query_time)
+                event = self._lookup_arrival(stop_index, query_time)
 
             if event is not None:
-                trip_idx, event_time = event
-                events.append(TimetableEvent(trip_idx, stop_idx, event_time))
+                trip_index, event_time = event
+                events.append(
+                    TimetableEvent(trip_index, stop_index, event_time)
+                )
 
         return events
 
