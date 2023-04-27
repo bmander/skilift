@@ -4,7 +4,7 @@ import datetime
 import math
 import os
 from abc import ABC, abstractmethod
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import timedelta
 from types import TracebackType
 from typing import (
@@ -29,6 +29,8 @@ from dotenv import load_dotenv
 from numpy.typing import NDArray
 from shapely import geometry
 from shapely.strtree import STRtree
+
+from utils import cons, expand_pairs
 
 # constants
 ALIGHTING_WEIGHT = 60.0  # utils; where 1 util ~= 1 second of travel time
@@ -242,27 +244,6 @@ class Timetable:
                 )
 
         return events
-
-
-T1 = TypeVar("T1")
-T2 = TypeVar("T2")
-
-
-def expand_pairs(
-    lst: Iterable[tuple[T1, Iterable[T2]]]
-) -> Generator[tuple[T1, T2], None, None]:
-    """Expands a list of pairs.
-
-    Args:
-        lst: List of pairs, in the form [(key, list), ...])]
-
-    Returns:
-        List of pairs, in the form [(key, item), ...]
-    """
-
-    for key, items in lst:
-        for item in items:
-            yield (key, item)
 
 
 def parse_gtfs_time(time_str: str) -> int:
@@ -847,9 +828,6 @@ class Node(NamedTuple):
     lat: float
 
 
-CartesianPoint = tuple[float, float]
-
-
 def read_osm(
     filename: str,
 ) -> tuple[dict[NodeId, Node], dict[WayId, Way]]:
@@ -981,25 +959,6 @@ class ElevationRaster:
         return elev
 
 
-def get_node_references(ways: dict[WayId, Way]) -> dict[NodeId, set[NodeRef]]:
-    """Get a dictionary of node references.
-
-    Args:
-        ways (Dict): A dictionary with the format {way_id: Way}.
-
-    Returns:
-        Dict: A dictionary of instances in which a node was used in a way.
-            The format is {node_id: {(way_id, node_index)}}"""
-
-    nd_refs: dict[int, set[NodeRef]] = defaultdict(set)
-
-    for way_id, way in ways.items():
-        for i, nd in enumerate(way.nds):
-            nd_refs[nd].add(NodeRef(way_id, i))
-
-    return nd_refs
-
-
 def geodesic_distance(
     geo_pt: geometry.Point, geo_pt2: geometry.Point
 ) -> float:
@@ -1125,26 +1084,6 @@ class StreetNodeVertex(AbstractVertex):
         return (self.node_id, self.time)
 
 
-T = TypeVar("T")
-
-
-def cons(ary: Iterable[T]) -> Iterator[tuple[T, T]]:
-    """Yield pairs of adjacent elements in an array.
-
-    Args:
-        ary (Iterable[T]): An iterable.
-
-    Yields:
-        Iterator[tuple[T, T]]: A generator of pairs of adjacent elements.
-    """
-
-    it = iter(ary)
-    prev = next(it)
-    for item in it:
-        yield prev, item
-        prev = item
-
-
 class StreetData:
     """Holds all the context needed to generate adjacent edges in a
     street network. The context includes street and elevation data."""
@@ -1165,7 +1104,7 @@ class StreetData:
         print("done")
 
         print("Indexing ways...", end="", flush=True)
-        self.node_refs = get_node_references(self.ways)
+        self.node_refs = self._get_node_references()
         print("done")
 
         print("Getting node elevations...", end="", flush=True)
@@ -1182,6 +1121,24 @@ class StreetData:
             [x.geometry for x in self.segments]
         )
         print("done")
+
+    def _get_node_references(self) -> dict[NodeId, set[NodeRef]]:
+        """Get a dictionary of node references.
+
+        Args:
+            ways (Dict): A dictionary with the format {way_id: Way}.
+
+        Returns:
+            Dict: A dictionary of instances in which a node was used in a way.
+                The format is {node_id: {(way_id, node_index)}}"""
+
+        nd_refs: dict[int, set[NodeRef]] = defaultdict(set)
+
+        for way_id, way in self.ways.items():
+            for i, nd in enumerate(way.nds):
+                nd_refs[nd].add(NodeRef(way_id, i))
+
+        return nd_refs
 
     def _generate_way_segments(
         self,
