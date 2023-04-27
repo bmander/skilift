@@ -1595,11 +1595,22 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
 
         links = self._find_links()
 
+        # dict for looking up stop_id -> segment
         self.stop_to_seg: dict[GTFSID, SegmentLinearRef] = dict(links)
-        self.seg_to_Stop: dict[SegmentRef, tuple[GTFSID, float]] = {
-            seg_lin_ref.segment: (stop_id, seg_lin_ref.offset)
-            for stop_id, seg_lin_ref in links
-        }
+
+        # dict for looking up node_id -> set of containing the stop_id
+        # and the segment on which it can be found
+        self.node_to_stop: dict[
+            NodeId, set[tuple[GTFSID, SegmentLinearRef]]
+        ] = defaultdict(set)
+
+        for stop_id, seg_lin_ref in links:
+            way = self.street_data.ways[seg_lin_ref.segment.way_id]
+            seg_start_node = way.nds[seg_lin_ref.segment.segment_index]
+            seg_end_node = way.nds[seg_lin_ref.segment.segment_index + 1]
+
+            self.node_to_stop[seg_start_node].add((stop_id, seg_lin_ref))
+            self.node_to_stop[seg_end_node].add((stop_id, seg_lin_ref))
 
     def _find_links(self) -> list[tuple[GTFSID, SegmentLinearRef]]:
         links = []
