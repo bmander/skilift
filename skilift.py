@@ -204,7 +204,7 @@ class Timetable:
 
     def find_timetable_events(
         self,
-        stop_id: Hashable,
+        stop_id: GTFSID,
         query_time: SecondsSinceMidnight,
         find_departure: bool = True,
     ) -> list[TimetableEvent]:
@@ -544,7 +544,7 @@ class GTFSFeed:
 
         return self.stops[self.stops.stop_name.str.contains(name)]
 
-    def get_service_ids(self, date: datetime.date) -> set[Any]:
+    def get_service_ids(self, date: datetime.date) -> set[GTFSID]:
         """Returns a list of service_ids that are active on the given date.
 
         Args:
@@ -739,7 +739,7 @@ class AtStopVertex(AbstractVertex):
         self.stop_id = stop_id
         self.datetime = datetime
 
-    def as_tuple(self) -> tuple[Any, pd.Timestamp]:
+    def as_tuple(self) -> tuple[GTFSID, pd.Timestamp]:
         return (self.stop_id, self.datetime)
 
     def __repr__(self) -> str:
@@ -981,64 +981,6 @@ class ElevationRaster:
         return elev
 
 
-def get_elevations_for_nodes(
-    elev_raster_fn: str, nodes: dict[NodeId, Node]
-) -> dict[NodeId, float]:
-    """Get the elevation of each node in a list of nodes.
-
-    Args:
-        elev_raster_fn (str): Path to the elevation raster file.
-        nodes (Dict[int, CartesianPoint]): A dictionary of node IDs and
-            their (lon, lat) coordinates.
-
-    Returns:
-        Dict[int, float]: A dictionary of node IDs and their elevations.
-    """
-
-    node_elevs: dict[int, float] = {}
-
-    with ElevationRaster(elev_raster_fn) as elev_raster:
-        for node, (lon, lat) in nodes.items():
-            node_elevs[node] = elev_raster.get_elevation(lon, lat)
-
-    return node_elevs
-
-
-def get_vertex_nodes(ways: dict[int, Way]) -> set[int]:
-    """Get all the vertex nodes from the ways. The vertex nodes are the nodes
-    that are used more than once, or they are the start or end node of a street.
-
-    Args:
-        ways (Dict): A dictionary of ways.
-
-    Returns:
-        Set: A set of graph nodes.
-    """
-
-    vertex_nodes = set()
-
-    node_count: Counter[int] = Counter()
-    for way in ways.values():
-        # if a way has 0 or 1 nodes, it's not a street
-        if len(way.nds) < 2:
-            continue
-
-        # add the start and end nodes
-        vertex_nodes.add(way.nds[0])
-        vertex_nodes.add(way.nds[-1])
-
-        # count the number of times a node appears
-        node_count.update(way.nds)
-
-    # get all nodes that appear more than once
-    intersection_nodes = set(
-        node for node, count in node_count.items() if count > 1
-    )
-    vertex_nodes = vertex_nodes.union(intersection_nodes)
-
-    return vertex_nodes
-
-
 def get_node_references(ways: dict[WayId, Way]) -> dict[NodeId, set[NodeRef]]:
     """Get a dictionary of node references.
 
@@ -1207,7 +1149,7 @@ class StreetData:
     """Holds all the context needed to generate adjacent edges in a
     street network. The context includes street and elevation data."""
 
-    def __init__(self, osm_fn: str, elevation_raster_fn: str):
+    def __init__(self, osm_fn: str, elevation_raster_fn: str | None = None):
         """Initialize the dataset.
 
         Args:
@@ -1227,9 +1169,11 @@ class StreetData:
         print("done")
 
         print("Getting node elevations...", end="", flush=True)
-        self.node_elevs = get_elevations_for_nodes(
-            self.elevation_raster_fn, self.nodes
-        )
+        self.node_elevs: dict[NodeId, float] = {}
+        if self.elevation_raster_fn is not None:
+            with ElevationRaster(self.elevation_raster_fn) as elev_raster:
+                for node, (lon, lat) in self.nodes.items():
+                    self.node_elevs[node] = elev_raster.get_elevation(lon, lat)
         print("done")
 
         print("Creating spatial index...", end="", flush=True)
