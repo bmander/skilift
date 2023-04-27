@@ -58,6 +58,11 @@ class SegmentRef(NamedTuple):
     segment_index: SegmentIndex
 
 
+class SegmentLinearRef(NamedTuple):
+    segment: SegmentRef
+    offset: float
+
+
 class Segment(NamedTuple):
     ref: SegmentRef
     geometry: geometry.LineString
@@ -285,17 +290,17 @@ class GTFSFeed:
             if not self._is_gtfs_zip(zf):
                 raise ValueError("Error: zipfile is not a valid GTFS zip file")
 
-            self.zf = zf
-            self.service_dates = self._expand_service_dates(zf)
-            self.trips = self._read_trips(zf)
-            self.stops = self._read_stops(zf)
-            self.stop_times = self._read_stop_times(zf)
+            self._zf = zf
+            self._service_dates = self._expand_service_dates(zf)
+            self._trips = self._read_trips(zf)
+            self._stops = self._read_stops(zf)
+            self._stop_times = self._read_stop_times(zf)
 
             self._augment_with_stop_patterns()
-            self.timetables = self._get_timetables()
+            self._timetables = self._get_timetables()
 
-            self.day_start = self.stop_times["arrival_time"].min()
-            self.day_end = self.stop_times["departure_time"].max()
+            self._day_start = self._stop_times["arrival_time"].min()
+            self._day_end = self._stop_times["departure_time"].max()
 
     @classmethod
     def _is_gtfs_zip(cls, zf: ZipFile) -> bool:
@@ -326,7 +331,7 @@ class GTFSFeed:
     def _augment_with_stop_patterns(self) -> None:
         # get trip_id -> stop pattern
         trip_stop_patterns: dict[GTFSID, StopPattern] = (
-            self.stop_times.sort_values("stop_sequence")
+            self._stop_times.sort_values("stop_sequence")
             .groupby(["trip_id"])
             .agg({"stop_id": tuple})
             .to_dict()["stop_id"]
@@ -356,11 +361,11 @@ class GTFSFeed:
         )
 
         # augment the stop_times table with stop_pattern_id and service_id
-        self.stop_times = self.stop_times.merge(
+        self.stop_times = self._stop_times.merge(
             stop_pattern_id_trips_df, on="trip_id"
         )
         self.stop_times = self.stop_times.merge(
-            self.trips[["trip_id", "service_id"]], on="trip_id"
+            self._trips[["trip_id", "service_id"]], on="trip_id"
         )
 
         # create dict of stop_id -> stop_pattern_ids
@@ -513,17 +518,32 @@ class GTFSFeed:
                 },
             )
 
-    def stops_with_name(self, name: str) -> pd.DataFrame:
-        """Returns a list of stops that match the given name.
+    def get_stop_by_name(self, name: str) -> GTFSID:
+        stop_id = self._stops[self._stops.stop_name == name]["stop_id"].iloc[0]
 
-        Args:
-            name: Name to match.
+        if (
+            isinstance(stop_id, str)
+            or isinstance(stop_id, int)
+            or isinstance(stop_id, np.int64)
+        ):
+            return stop_id
+        else:
+            raise TypeError(
+                f"stop_id has unsupported type '{repr(type(stop_id))}'"
+            )
 
-        Returns:
-            List of stops that match the given name.
-        """
+    def get_stop_locations(self) -> list[tuple[GTFSID, float, float]]:
+        """Returns a list of tuples containing the stop_id, longitude, and
+        latitude of each stop."""
 
-        return self.stops[self.stops.stop_name.str.contains(name)]
+        return [
+            (stop_id, lon, lat)
+            for stop_id, lon, lat in zip(
+                self._stops.stop_id,
+                self._stops.stop_lon,
+                self._stops.stop_lat,
+            )
+        ]
 
     def get_service_ids(self, date: datetime.date) -> set[GTFSID]:
         """Returns a list of service_ids that are active on the given date.
@@ -535,7 +555,7 @@ class GTFSFeed:
             List of service_ids that are active on the given date.
         """
 
-        return self.service_dates[date]
+        return self._service_dates[date]
 
     def find_stop_events(
         self,
@@ -570,7 +590,7 @@ class GTFSFeed:
         # times can be greater than 24 hours to represent schedule events
         # in the early morning of the next day. If the query time is in the
         # early morning, we need to query the previous day's schedule.
-        if query_time + secs_in_day < self.day_end:
+        if query_time + secs_in_day < self._day_end:
             query_time += secs_in_day
             query_date -= timedelta(days=1)
 
@@ -583,10 +603,10 @@ class GTFSFeed:
             for service_id in self.get_service_ids(query_date):
                 key = (stop_pattern_id, service_id)
 
-                if key not in self.timetables:
+                if key not in self._timetables:
                     continue
 
-                timetable = self.timetables[key]
+                timetable = self._timetables[key]
 
                 for (
                     trip_index,
@@ -637,7 +657,7 @@ class TransitEdgeProvider(EdgeProvider):
     def _departure_vertex_outgoing(
         self, vertex: "DepartureVertex"
     ) -> list[Edge]:
-        timetable = self.feed.timetables[
+        timetable = self.feed._timetables[
             (vertex.pattern_id, vertex.service_id)
         ]
 
@@ -664,7 +684,7 @@ class TransitEdgeProvider(EdgeProvider):
     def _arrival_vertex_outgoing(self, vertex: "ArrivalVertex") -> list[Edge]:
         outgoing_edges = []
 
-        timetable = self.feed.timetables[
+        timetable = self.feed._timetables[
             (vertex.pattern_id, vertex.service_id)
         ]
 
@@ -813,7 +833,7 @@ class ArrivalVertex(AbstractVertex):
 def get_stop_vertex(
     feed: GTFSFeed, stop_name: str, datetime: pd.Timestamp
 ) -> AtStopVertex:
-    stop_id = feed.stops[feed.stops.stop_name == stop_name]["stop_id"].iloc[0]
+    stop_id = feed.get_stop_by_name(stop_name)
 
     return AtStopVertex(stop_id, datetime)
 
@@ -1170,7 +1190,7 @@ class StreetData:
 
     def get_nearest_segment(
         self, lon: float, lat: float, search_radius: float = 0.001
-    ) -> tuple[SegmentRef, float] | None:
+    ) -> SegmentLinearRef | None:
         """Get the nearest segment to a particular location.
 
         Args:
@@ -1180,9 +1200,9 @@ class StreetData:
                 Defaults to 0.001, which is about 100 meters.
 
         Returns:
-            Tuple[SegmentRef, float]: A tuple containing the way ID, the index of
-                the segment in the way, and the distance along the segment that
-                is closest to the location.
+            SegmentLinearRef: The nearest segment and the distance along the
+                segment that is closest to the location. If there are no
+                segments within the search radius, returns None.
         """
 
         # create a search geometry
@@ -1211,7 +1231,7 @@ class StreetData:
             query_pt, normalized=True
         )
 
-        return segment.ref, distance_along_segment
+        return SegmentLinearRef(segment.ref, distance_along_segment)
 
     def get_way_point(
         self, segment_ref: SegmentRef, linear_ref: float
@@ -1563,6 +1583,41 @@ class StreetEdgeProvider(EdgeProvider):
             return self._outgoing_street_node_vertex(vertex)
         else:
             return []
+
+    def incoming(self, vertex: AbstractVertex) -> list[Edge]:
+        raise NotImplementedError()
+
+
+class TransitStreetConnectionEdgeProvider(EdgeProvider):
+    def __init__(self, transit_data: GTFSFeed, street_data: StreetData):
+        self.transit_data = transit_data
+        self.street_data = street_data
+
+        links = self._find_links()
+
+        self.stop_to_seg: dict[GTFSID, SegmentLinearRef] = dict(links)
+        self.seg_to_Stop: dict[SegmentRef, tuple[GTFSID, float]] = {
+            seg_lin_ref.segment: (stop_id, seg_lin_ref.offset)
+            for stop_id, seg_lin_ref in links
+        }
+
+    def _find_links(self) -> list[tuple[GTFSID, SegmentLinearRef]]:
+        links = []
+
+        for (
+            stop_id,
+            stop_lon,
+            stop_lat,
+        ) in self.transit_data.get_stop_locations():
+            nearest = self.street_data.get_nearest_segment(stop_lon, stop_lat)
+
+            if nearest is not None:
+                links.append((stop_id, nearest))
+
+        return links
+
+    def outgoing(self, vertex: AbstractVertex) -> list[Edge]:
+        raise NotImplementedError()
 
     def incoming(self, vertex: AbstractVertex) -> list[Edge]:
         raise NotImplementedError()
