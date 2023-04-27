@@ -56,6 +56,11 @@ class SegmentRef(NamedTuple):
     segment_index: SegmentIndex
 
 
+class Segment(NamedTuple):
+    ref: SegmentRef
+    geometry: geometry.LineString
+
+
 class EdgeProvider(ABC):
     """Abstract base class for providing edges for a given vertex."""
 
@@ -1215,23 +1220,22 @@ class StreetData:
         print("done")
 
         print("Creating spatial index...", end="", flush=True)
-        (
-            self.segment_way_refs,
-            self.segments,
-        ) = self._generate_way_segments()
-        self.segment_spatial_index = STRtree(self.segments)
+        self.segments = self._generate_way_segments()
+        self.segment_spatial_index = STRtree(
+            [x.geometry for x in self.segments]
+        )
         print("done")
 
     def _generate_way_segments(
         self,
-    ) -> tuple[list[SegmentRef], list[geometry.LineString]]:
+    ) -> list[Segment]:
         """Generate all the segments in the ways.
 
         This is a part of generating the index that is used to find the closest
         way to a particular location."""
 
-        segment_way_refs: list[SegmentRef] = []
-        segments = []
+        segments: list[Segment] = []
+
         for way_id, way in self.ways.items():
             for segment_index, (nd1, nd2) in enumerate(cons(way.nds)):
                 pt1 = self.nodes[nd1]
@@ -1239,10 +1243,11 @@ class StreetData:
 
                 segment = geometry.LineString([pt1, pt2])
 
-                segment_way_refs.append(SegmentRef(way_id, segment_index))
-                segments.append(segment)
+                segments.append(
+                    Segment(SegmentRef(way_id, segment_index), segment)
+                )
 
-        return segment_way_refs, segments
+        return segments
 
     def get_nearest_segment(
         self, lon: float, lat: float, search_radius: float = 0.001
@@ -1261,27 +1266,33 @@ class StreetData:
                 is closest to the location.
         """
 
+        # create a search geometry
         query_pt = geometry.Point(lon, lat)
         search_area = query_pt.buffer(search_radius)
-        nearby_segment_ids = self.segment_spatial_index.query(search_area)
 
-        if len(nearby_segment_ids) == 0:
+        # find all the segments that intersect the search geometry
+        query_result_indices = self.segment_spatial_index.query(search_area)
+
+        # if there are no results, return None
+        if len(query_result_indices) == 0:
             return None
 
+        # find the closest segment
         i = np.argmin(
             [
-                self.segments[nearby_segment_id].distance(query_pt)
-                for nearby_segment_id in nearby_segment_ids
+                self.segments[query_result_index].geometry.distance(query_pt)
+                for query_result_index in query_result_indices
             ]
         )
-        nearest_segment_id = nearby_segment_ids[i]
+        nearest_query_result_index = query_result_indices[i]
 
-        segment_ref = self.segment_way_refs[nearest_segment_id]
-        distance_along_segment = self.segments[
-            nearest_segment_id
-        ].line_locate_point(query_pt, normalized=True)
+        # find the distance along the segment that is closest to the location
+        segment = self.segments[nearest_query_result_index]
+        distance_along_segment = segment.geometry.line_locate_point(
+            query_pt, normalized=True
+        )
 
-        return segment_ref, distance_along_segment
+        return segment.ref, distance_along_segment
 
     def get_way_point(
         self, segment_ref: SegmentRef, linear_ref: float
