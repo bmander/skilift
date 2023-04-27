@@ -1163,7 +1163,7 @@ class MidstreetVertex(AbstractVertex):
 class StreetNodeVertex(AbstractVertex):
     """Represents the passenger standing on a street at a node."""
 
-    def __init__(self, node_ref: NodeRef, time: pd.Timestamp):
+    def __init__(self, node_id: NodeId, time: pd.Timestamp):
         """Initialize the node.
 
         Args:
@@ -1171,14 +1171,14 @@ class StreetNodeVertex(AbstractVertex):
             datetime (pd.Timestamp): The time of the passenger.
         """
 
-        self.node_ref = node_ref
+        self.node_id = node_id
         self.time = time
 
     def __repr__(self) -> str:
-        return f"StreetNodeVertex({self.node_ref}, {self.time})"
+        return f"StreetNodeVertex({self.node_id}, {self.time})"
 
-    def as_tuple(self) -> tuple[NodeRef, pd.Timestamp]:
-        return (self.node_ref, self.time)
+    def as_tuple(self) -> tuple[NodeId, pd.Timestamp]:
+        return (self.node_id, self.time)
 
 
 T = TypeVar("T")
@@ -1345,9 +1345,6 @@ class StreetData:
 
         return ls.interpolate(linear_ref, normalized=True)
 
-    def node_ref_to_node_id(self, node_ref: NodeRef) -> NodeId:
-        return self.ways[node_ref.way_id].nds[node_ref.node_index]
-
     def adj_vertex_node(
         self,
         node_ref: NodeRef,
@@ -1479,7 +1476,7 @@ class StreetEdgeProvider(EdgeProvider):
 
         # make vertex
         forward_vertex = StreetNodeVertex(
-            NodeRef(vertex.segment_ref.way_id, seg_end),
+            nds[-1],
             vertex.time + pd.Timedelta(seconds=dt),
         )
         edges.append(Edge(forward_vertex, weight))
@@ -1508,7 +1505,7 @@ class StreetEdgeProvider(EdgeProvider):
 
             # make vertex
             reverse_vertex = StreetNodeVertex(
-                NodeRef(vertex.segment_ref.way_id, seg_end),
+                nds[-1],
                 vertex.time + pd.Timedelta(seconds=dt),
             )
             edges.append(Edge(reverse_vertex, weight))
@@ -1517,7 +1514,7 @@ class StreetEdgeProvider(EdgeProvider):
 
     def _get_forward_topological_segment(
         self, start: NodeRef
-    ) -> tuple[geometry.LineString, ArrayIndex] | None:
+    ) -> tuple[geometry.LineString, NodeId] | None:
         """Get the segment beginning at a node and continuing forward to the
         next junction.
 
@@ -1528,10 +1525,10 @@ class StreetEdgeProvider(EdgeProvider):
             ValueError: If the node index is out of range.
 
         Returns:
-            tuple[geometry.LineString, ArrayIndex] | None: A geometry
-                containing all the geo points of the segment, and the index
-                of the last node in the segment. If the node is at the end of
-                the way, returns None.
+            tuple[geometry.LineString, NodeId] | None: A geometry
+                containing all the geo points of the segment, and the ID of the
+                last node in the segment. If the node is at the end of the way,
+                returns None.
         """
         way = self.osm_data.ways[start.way_id]
 
@@ -1560,11 +1557,11 @@ class StreetEdgeProvider(EdgeProvider):
             [self.osm_data.nodes[nd] for nd in nds]
         )
 
-        return ls, seg_end
+        return ls, nds[-1]
 
     def _get_reverse_topological_segment(
         self, start: NodeRef
-    ) -> tuple[geometry.LineString, ArrayIndex] | None:
+    ) -> tuple[geometry.LineString, NodeId] | None:
         """Get the segment beginning at a node and continuing backward to the
         previous junction.
 
@@ -1576,7 +1573,7 @@ class StreetEdgeProvider(EdgeProvider):
 
         Returns:
             tuple[geometry.LineString, ArrayIndex] | None: A geometry
-                containing all the geo points of the segment, and the index
+                containing all the geo points of the segment, and the ID of the
                 of the last node in the segment. If the node is at the
                 beginning of the way, returns None.
         """
@@ -1608,28 +1605,26 @@ class StreetEdgeProvider(EdgeProvider):
             [self.osm_data.nodes[nd] for nd in nds]
         )
 
-        return ls, seg_end
+        return ls, nds[-1]
 
     def _outgoing_street_node_vertex(
         self, vertex: StreetNodeVertex
     ) -> list[Edge]:
         edges: list[Edge] = []
 
-        nd = self.osm_data.node_ref_to_node_id(vertex.node_ref)
-
         # for each referenced way
-        for node_ref in self.osm_data.node_refs[nd]:
+        for node_ref in self.osm_data.node_refs[vertex.node_id]:
             # get forward segment
             topo_seg = self._get_forward_topological_segment(node_ref)
             if topo_seg is not None:
-                ls, seg_end = topo_seg
+                ls, seg_end_node_id = topo_seg
 
                 distance = geodesic_linestring_length(ls)
                 dt = distance / WALKING_SPEED
                 weight = dt * WALKING_RELUCTANCE
 
                 vertex = StreetNodeVertex(
-                    NodeRef(node_ref.way_id, seg_end),
+                    seg_end_node_id,
                     vertex.time + pd.Timedelta(seconds=dt),
                 )
                 edge = Edge(vertex, weight)
@@ -1637,17 +1632,17 @@ class StreetEdgeProvider(EdgeProvider):
                 edges.append(edge)
 
             # get reverse segment
-            if not self.osm_data.is_oneway(vertex.node_ref.way_id):
+            if not self.osm_data.is_oneway(node_ref.way_id):
                 topo_seg = self._get_reverse_topological_segment(node_ref)
                 if topo_seg is not None:
-                    ls, seg_end = topo_seg
+                    ls, seg_end_node_id = topo_seg
 
                     distance = geodesic_linestring_length(ls)
                     dt = distance / WALKING_SPEED
                     weight = dt * WALKING_RELUCTANCE
 
                     vertex = StreetNodeVertex(
-                        NodeRef(node_ref.way_id, seg_end),
+                        seg_end_node_id,
                         vertex.time + pd.Timedelta(seconds=dt),
                     )
                     edge = Edge(vertex, weight)
