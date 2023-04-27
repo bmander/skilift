@@ -836,7 +836,7 @@ def get_stop_vertex(
 
 
 class Way(NamedTuple):
-    nds: list[int]
+    nds: list[NodeId]
     tags: dict[str, str]
 
 
@@ -1095,7 +1095,7 @@ def geodesic_linestring_length(ls: geometry.LineString) -> float:
     return length
 
 
-class OnEarthSurfaceNode(AbstractVertex):
+class OnEarthSurfaceVertex(AbstractVertex):
     """Represents a passenger standing on the surface of the earth at a
     particular location and time."""
 
@@ -1181,8 +1181,19 @@ class StreetNodeVertex(AbstractVertex):
         return (self.node_ref, self.time)
 
 
-def cons(ary: Iterable[Any]) -> Iterator[tuple[Any, Any]]:
-    """Return a generator of consecutive pairs from the input iterable."""
+T = TypeVar("T")
+
+
+def cons(ary: Iterable[T]) -> Iterator[tuple[T, T]]:
+    """Yield pairs of adjacent elements in an array.
+
+    Args:
+        ary (Iterable[T]): An iterable.
+
+    Yields:
+        Iterator[tuple[T, T]]: A generator of pairs of adjacent elements.
+    """
+
     it = iter(ary)
     prev = next(it)
     for item in it:
@@ -1232,7 +1243,12 @@ class StreetData:
         """Generate all the segments in the ways.
 
         This is a part of generating the index that is used to find the closest
-        way to a particular location."""
+        way to a particular location.
+
+        Returns:
+            list[Segment]: A list of every segment in the OSM file. A segment
+                is a pair of adjacent nodes in a way.
+        """
 
         segments: list[Segment] = []
 
@@ -1261,7 +1277,7 @@ class StreetData:
                 Defaults to 0.001, which is about 100 meters.
 
         Returns:
-            Tuple[int, int, float]: A tuple containing the way ID, the index of
+            Tuple[SegmentRef, float]: A tuple containing the way ID, the index of
                 the segment in the way, and the distance along the segment that
                 is closest to the location.
         """
@@ -1329,11 +1345,14 @@ class StreetData:
 
         return ls.interpolate(linear_ref, normalized=True)
 
+    def node_ref_to_node_id(self, node_ref: NodeRef) -> NodeId:
+        return self.ways[node_ref.way_id].nds[node_ref.node_index]
+
     def adj_vertex_node(
         self,
         node_ref: NodeRef,
         search_forward: bool = True,
-    ) -> int:
+    ) -> ArrayIndex:
         """Get the position in the way of the next vertex node. A vertex node
         is a node that is either referenced by a way more than once, or is the
         first or last node. Essentially, it is node at which a turn can be
@@ -1391,8 +1410,16 @@ class StreetEdgeProvider(EdgeProvider):
         self.osm_data = osm_data
 
     def _outgoing_on_earth_surface_vertex(
-        self, node: OnEarthSurfaceNode
+        self, node: OnEarthSurfaceVertex
     ) -> list[Edge]:
+        """Get the outgoing edges from an OnEarthSurfaceVertex.
+
+        Args:
+            node (OnEarthSurfaceNode): _description_
+
+        Returns:
+            list[Edge]: _description_
+        """
         # get nearest segment
         segment = self.osm_data.get_nearest_segment(node.lon, node.lat)
 
@@ -1458,7 +1485,7 @@ class StreetEdgeProvider(EdgeProvider):
         edges.append(Edge(forward_vertex, weight))
 
         if not self.osm_data.is_oneway(vertex.segment_ref.way_id):
-            # get backward segment
+            # get reverse segment
             seg_start = vertex.segment_ref.segment_index
             seg_end = self.osm_data.adj_vertex_node(
                 NodeRef(vertex.segment_ref.way_id, seg_start),
@@ -1488,36 +1515,154 @@ class StreetEdgeProvider(EdgeProvider):
 
         return edges
 
-    def _outoing_street_node_vertex(
+    def _get_forward_topological_segment(
+        self, start: NodeRef
+    ) -> tuple[geometry.LineString, ArrayIndex] | None:
+        """Get the segment beginning at a node and continuing forward to the
+        next junction.
+
+        Args:
+            start (NodeRef): The node to start from.
+
+        Raises:
+            ValueError: If the node index is out of range.
+
+        Returns:
+            tuple[geometry.LineString, ArrayIndex] | None: A geometry
+                containing all the geo points of the segment, and the index
+                of the last node in the segment. If the node is at the end of
+                the way, returns None.
+        """
+        way = self.osm_data.ways[start.way_id]
+
+        if start.node_index < 0 or start.node_index >= len(way.nds):
+            raise ValueError(
+                f"Node index {start.node_index} is out of range for "
+                f"way {start.way_id}"
+            )
+
+        # if we're at the end of the way, there is no forward segment
+        if start.node_index == len(way.nds) - 1:
+            return None
+
+        # get forward segment
+        seg_end = self.osm_data.adj_vertex_node(
+            NodeRef(start.way_id, start.node_index + 1)
+        )
+
+        # include both endpoints
+        seg_end_inclusive = seg_end + 1
+        nds = self.osm_data.ways[start.way_id].nds[
+            start.node_index : seg_end_inclusive
+        ]
+
+        ls: geometry.LineString = geometry.LineString(
+            [self.osm_data.nodes[nd] for nd in nds]
+        )
+
+        return ls, seg_end
+
+    def _get_reverse_topological_segment(
+        self, start: NodeRef
+    ) -> tuple[geometry.LineString, ArrayIndex] | None:
+        """Get the segment beginning at a node and continuing backward to the
+        previous junction.
+
+        Args:
+            start (NodeRef): The node to start from.
+
+        Raises:
+            ValueError: If the node index is out of range.
+
+        Returns:
+            tuple[geometry.LineString, ArrayIndex] | None: A geometry
+                containing all the geo points of the segment, and the index
+                of the last node in the segment. If the node is at the
+                beginning of the way, returns None.
+        """
+        way = self.osm_data.ways[start.way_id]
+
+        if start.node_index < 0 or start.node_index >= len(way.nds):
+            raise ValueError(
+                f"Node index {start.node_index} is out of range for "
+                f"way {start.way_id}"
+            )
+
+        # if we're at the beginning of the way, there is no reverse segment
+        if start.node_index == 0:
+            return None
+
+        # get reverse segment
+        seg_end = self.osm_data.adj_vertex_node(
+            NodeRef(start.way_id, start.node_index - 1),
+            search_forward=False,
+        )
+
+        # include both endpoints
+        seg_end_inclusive = seg_end - 1 if seg_end != 0 else None
+        nds = self.osm_data.ways[start.way_id].nds[
+            start.node_index : seg_end_inclusive : -1
+        ]
+
+        ls: geometry.LineString = geometry.LineString(
+            [self.osm_data.nodes[nd] for nd in nds]
+        )
+
+        return ls, seg_end
+
+    def _outgoing_street_node_vertex(
         self, vertex: StreetNodeVertex
     ) -> list[Edge]:
         edges: list[Edge] = []
 
-        nd = self.osm_data.ways[vertex.node_ref.way_id].nds[
-            vertex.node_ref.node_index
-        ]
+        nd = self.osm_data.node_ref_to_node_id(vertex.node_ref)
 
         # for each referenced way
-        for way_id, node_index in self.osm_data.node_refs[nd]:
-            way = self.osm_data.ways[way_id]
-
+        for node_ref in self.osm_data.node_refs[nd]:
             # get forward segment
-            if node_index < len(way.nds) - 1:
-                pass
+            topo_seg = self._get_forward_topological_segment(node_ref)
+            if topo_seg is not None:
+                ls, seg_end = topo_seg
+
+                distance = geodesic_linestring_length(ls)
+                dt = distance / WALKING_SPEED
+                weight = dt * WALKING_RELUCTANCE
+
+                vertex = StreetNodeVertex(
+                    NodeRef(node_ref.way_id, seg_end),
+                    vertex.time + pd.Timedelta(seconds=dt),
+                )
+                edge = Edge(vertex, weight)
+
+                edges.append(edge)
 
             # get reverse segment
-            if not self.osm_data.is_oneway(way_id):
-                pass
+            if not self.osm_data.is_oneway(vertex.node_ref.way_id):
+                topo_seg = self._get_reverse_topological_segment(node_ref)
+                if topo_seg is not None:
+                    ls, seg_end = topo_seg
+
+                    distance = geodesic_linestring_length(ls)
+                    dt = distance / WALKING_SPEED
+                    weight = dt * WALKING_RELUCTANCE
+
+                    vertex = StreetNodeVertex(
+                        NodeRef(node_ref.way_id, seg_end),
+                        vertex.time + pd.Timedelta(seconds=dt),
+                    )
+                    edge = Edge(vertex, weight)
+
+                    edges.append(edge)
 
         return edges
 
     def outgoing(self, vertex: AbstractVertex) -> list[Edge]:
-        if isinstance(vertex, OnEarthSurfaceNode):
+        if isinstance(vertex, OnEarthSurfaceVertex):
             return self._outgoing_on_earth_surface_vertex(vertex)
         elif isinstance(vertex, MidstreetVertex):
             return self._outgoing_midstreet_vertex(vertex)
         elif isinstance(vertex, StreetNodeVertex):
-            return self._outoing_street_node_vertex(vertex)
+            return self._outgoing_street_node_vertex(vertex)
         else:
             return []
 
