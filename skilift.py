@@ -58,9 +58,32 @@ class SegmentRef(NamedTuple):
     segment_index: SegmentIndex
 
 
-class SegmentLinearRef(NamedTuple):
+class MidSegmentRef:
     segment: SegmentRef
-    offset: float
+    offset_int: int  # normalized offset between 0 and 1, times 100000
+
+    def __init__(self, segment: SegmentRef, offset: float):
+        self.segment = segment
+        self.offset_int = int(offset * 100000)
+
+    @property
+    def offset(self) -> float:
+        return self.offset_int / 100000
+
+    # same style as a NamedTuple subclass
+    def __repr__(self) -> str:
+        return f"MidSegmentRef({self.segment}, {self.offset})"
+
+    def __hash__(self) -> int:
+        return hash((self.segment, self.offset_int))
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, MidSegmentRef):
+            return False
+        return (
+            self.segment == other.segment
+            and self.offset_int == other.offset_int
+        )
 
 
 class Segment(NamedTuple):
@@ -1062,25 +1085,24 @@ class MidstreetVertex(AbstractVertex):
 
     def __init__(
         self,
-        segment_linear_ref: SegmentLinearRef,
+        midseg_ref: MidSegmentRef,
         time: pd.Timestamp,
     ):
         """Initialize the node.
 
         Args:
-            segment_ref (SegmentRef): A reference to the way segment.
-            linear_ref (float): The linear reference along the segment.
+            midseg_ref (MidSegmentRef): A reference to the way segment.
             time (pd.Timestamp): The time of the passenger.
         """
 
-        self.segment_linear_ref = segment_linear_ref
+        self.midseg_ref = midseg_ref
         self.time = time
 
     def __repr__(self) -> str:
-        return f"MidStreetNode({self.segment_linear_ref}, {self.time})"
+        return f"MidStreetNode({self.midseg_ref}, {self.time})"
 
-    def as_tuple(self) -> tuple[SegmentLinearRef, pd.Timestamp]:
-        return (self.segment_linear_ref, self.time)
+    def as_tuple(self) -> tuple[MidSegmentRef, pd.Timestamp]:
+        return (self.midseg_ref, self.time)
 
 
 class StreetNodeVertex(AbstractVertex):
@@ -1190,7 +1212,7 @@ class StreetData:
 
     def get_nearest_segment(
         self, lon: float, lat: float, search_radius: float = 0.001
-    ) -> SegmentLinearRef | None:
+    ) -> MidSegmentRef | None:
         """Get the nearest segment to a particular location.
 
         Args:
@@ -1200,7 +1222,7 @@ class StreetData:
                 Defaults to 0.001, which is about 100 meters.
 
         Returns:
-            SegmentLinearRef: The nearest segment and the distance along the
+            MidSegmentRef: The nearest segment and the distance along the
                 segment that is closest to the location. If there are no
                 segments within the search radius, returns None.
         """
@@ -1231,43 +1253,43 @@ class StreetData:
             query_pt, normalized=True
         )
 
-        return SegmentLinearRef(segment.ref, distance_along_segment)
+        return MidSegmentRef(segment.ref, distance_along_segment)
 
-    def get_way_point(
-        self, segment_linear_ref: SegmentLinearRef
-    ) -> geometry.Point:
-        """Get the point along a way at a particular linear reference.
+    def get_way_point(self, midseg_ref: MidSegmentRef) -> geometry.Point:
+        """Get the point in the middle of a way segment.
 
         Args:
-            way_id (WayId): The ID of the way.
-            segment_index (int): The index of the segment in the way.
-            linear_ref (float): The linear reference along the segment.
+            midseg_ref (MidSegmentRef): The reference to the segment and the
+                distance along the segment.
+
+        Raises:
+            ValueError: If the segment index is out of range.
 
         Returns:
-            Point: The point along the way at the specified linear reference.
+            geometry.Point: The point in the middle of the segment.
         """
 
-        way = self.ways[segment_linear_ref.segment.way_id]
+        way = self.ways[midseg_ref.segment.way_id]
 
         if (
-            segment_linear_ref.segment.segment_index < 0
-            or segment_linear_ref.segment.segment_index >= len(way.nds) - 1
+            midseg_ref.segment.segment_index < 0
+            or midseg_ref.segment.segment_index >= len(way.nds) - 1
         ):
             raise ValueError(
-                f"Segment index {segment_linear_ref.segment.segment_index} "
+                f"Segment index {midseg_ref.segment.segment_index} "
                 f"is out of range "
-                f"for way {segment_linear_ref.segment.way_id}"
+                f"for way {midseg_ref.segment.way_id}"
             )
 
-        nd1 = way.nds[segment_linear_ref.segment.segment_index]
-        nd2 = way.nds[segment_linear_ref.segment.segment_index + 1]
+        nd1 = way.nds[midseg_ref.segment.segment_index]
+        nd2 = way.nds[midseg_ref.segment.segment_index + 1]
 
         pt1 = self.nodes[nd1]
         pt2 = self.nodes[nd2]
 
         ls = geometry.LineString([pt1, pt2])
 
-        return ls.interpolate(segment_linear_ref.offset, normalized=True)
+        return ls.interpolate(midseg_ref.offset, normalized=True)
 
     def adj_vertex_node(
         self,
@@ -1342,15 +1364,13 @@ class StreetEdgeProvider(EdgeProvider):
             list[Edge]: _description_
         """
         # get nearest segment
-        segment_linear_ref = self.osm_data.get_nearest_segment(
-            node.lon, node.lat
-        )
+        midseg_ref = self.osm_data.get_nearest_segment(node.lon, node.lat)
 
-        if segment_linear_ref is None:
+        if midseg_ref is None:
             return []
 
         # get closest point on nearest segment
-        closest_way_pt = self.osm_data.get_way_point(segment_linear_ref)
+        closest_way_pt = self.osm_data.get_way_point(midseg_ref)
         distance = geodesic_distance(
             geometry.Point(node.lon, node.lat), closest_way_pt
         )
@@ -1361,7 +1381,7 @@ class StreetEdgeProvider(EdgeProvider):
 
         # make adjacent node
         adj_vertex = MidstreetVertex(
-            segment_linear_ref,
+            midseg_ref,
             node.time + pd.Timedelta(seconds=dt),
         )
 
@@ -1373,16 +1393,16 @@ class StreetEdgeProvider(EdgeProvider):
     ) -> list[Edge]:
         edges: list[Edge] = []
 
-        midpoint = self.osm_data.get_way_point(vertex.segment_linear_ref)
+        midpoint = self.osm_data.get_way_point(vertex.midseg_ref)
 
         # get forward segment
-        seg_start = vertex.segment_linear_ref.segment.segment_index + 1
+        seg_start = vertex.midseg_ref.segment.segment_index + 1
         seg_end = self.osm_data.adj_vertex_node(
-            NodeRef(vertex.segment_linear_ref.segment.way_id, seg_start)
+            NodeRef(vertex.midseg_ref.segment.way_id, seg_start)
         )
 
         # include both endpoints
-        nds = self.osm_data.ways[vertex.segment_linear_ref.segment.way_id].nds[
+        nds = self.osm_data.ways[vertex.midseg_ref.segment.way_id].nds[
             seg_start : seg_end + 1
         ]
 
@@ -1402,20 +1422,18 @@ class StreetEdgeProvider(EdgeProvider):
         )
         edges.append(Edge(forward_vertex, weight))
 
-        if not self.osm_data.is_oneway(
-            vertex.segment_linear_ref.segment.way_id
-        ):
+        if not self.osm_data.is_oneway(vertex.midseg_ref.segment.way_id):
             # get reverse segment
-            seg_start = vertex.segment_linear_ref.segment.segment_index
+            seg_start = vertex.midseg_ref.segment.segment_index
             seg_end = self.osm_data.adj_vertex_node(
-                NodeRef(vertex.segment_linear_ref.segment.way_id, seg_start),
+                NodeRef(vertex.midseg_ref.segment.way_id, seg_start),
                 search_forward=False,
             )
 
             inclusive_seg_end = seg_end - 1 if seg_end != 0 else None
-            nds = self.osm_data.ways[
-                vertex.segment_linear_ref.segment.way_id
-            ].nds[seg_start:inclusive_seg_end:-1]
+            nds = self.osm_data.ways[vertex.midseg_ref.segment.way_id].nds[
+                seg_start:inclusive_seg_end:-1
+            ]
 
             # compute distance and time
             ls = geometry.LineString(
@@ -1595,24 +1613,42 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
 
         links = self._find_links()
 
-        # dict for looking up stop_id -> segment
-        self.stop_to_seg: dict[GTFSID, SegmentLinearRef] = dict(links)
+        # dict for looking up stop_id -> midsegment_ref
+        self.stop_to_midseg_ref: dict[GTFSID, MidSegmentRef] = dict(links)
 
-        # dict for looking up node_id -> set of containing the stop_id
-        # and the segment on which it can be found
-        self.node_to_stops: dict[
-            NodeId, set[tuple[GTFSID, SegmentLinearRef]]
+        # dict for midseg_ref -> stops
+        self.midseg_ref_to_stops: dict[
+            MidSegmentRef, set[GTFSID]
         ] = defaultdict(set)
 
-        for stop_id, seg_lin_ref in links:
-            way = self.street_data.ways[seg_lin_ref.segment.way_id]
-            seg_start_node = way.nds[seg_lin_ref.segment.segment_index]
-            seg_end_node = way.nds[seg_lin_ref.segment.segment_index + 1]
+        # dict for segment_ref -> midseg_refs
+        self.segment_ref_to_midseg_refs: dict[
+            SegmentRef, set[MidSegmentRef]
+        ] = defaultdict(set)
 
-            self.node_to_stops[seg_start_node].add((stop_id, seg_lin_ref))
-            self.node_to_stops[seg_end_node].add((stop_id, seg_lin_ref))
+        # dict for node_id -> midseg_refs
+        self.node_to_midseg_refs: dict[
+            NodeId, set[MidSegmentRef]
+        ] = defaultdict(set)
 
-    def _find_links(self) -> list[tuple[GTFSID, SegmentLinearRef]]:
+        for stop_id, midseg_ref in links:
+            # stopid -> midseg_ref
+            self.stop_to_midseg_ref[stop_id] = midseg_ref
+
+            # midseg_ref -> stop_ids
+            self.midseg_ref_to_stops[midseg_ref].add(stop_id)
+
+            # segment_ref -> midseg_refs
+            self.segment_ref_to_midseg_refs[midseg_ref.segment].add(midseg_ref)
+
+            # node_id -> midseg_refs
+            way = self.street_data.ways[midseg_ref.segment.way_id]
+            seg_start_node = way.nds[midseg_ref.segment.segment_index]
+            seg_end_node = way.nds[midseg_ref.segment.segment_index + 1]
+            self.node_to_midseg_refs[seg_start_node].add(midseg_ref)
+            self.node_to_midseg_refs[seg_end_node].add(midseg_ref)
+
+    def _find_links(self) -> list[tuple[GTFSID, MidSegmentRef]]:
         links = []
 
         for (
@@ -1628,19 +1664,19 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
         return links
 
     def _outgoing_at_stop_vertex(self, vertex: AtStopVertex) -> list[Edge]:
-        seg_lin_ref = self.stop_to_seg.get(vertex.stop_id)
-        if seg_lin_ref is None:
+        midseg_ref = self.stop_to_midseg_ref.get(vertex.stop_id)
+        if midseg_ref is None:
             return []
 
         stop_point = self.transit_data.get_stop_point(vertex.stop_id)
-        street_point = self.street_data.get_way_point(seg_lin_ref)
+        street_point = self.street_data.get_way_point(midseg_ref)
 
         distance = geodesic_distance(street_point, stop_point)
         dt = distance / WALKING_SPEED
         weight = dt * WALKING_RELUCTANCE
 
         adj_vertex = MidstreetVertex(
-            seg_lin_ref, vertex.time + pd.Timedelta(seconds=dt)
+            midseg_ref, vertex.time + pd.Timedelta(seconds=dt)
         )
         edge = Edge(adj_vertex, weight)
 
@@ -1649,30 +1685,32 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
     def _outgoing_street_node_vertex(
         self, vertex: StreetNodeVertex
     ) -> list[Edge]:
-        # TODO: return a midstreet vertex instead
-
         edges: list[Edge] = []
 
-        # for each referenced way
-        for stop_id, seg_lin_ref in self.node_to_stops[vertex.node_id]:
-            stop_point = self.transit_data.get_stop_point(stop_id)
-            node_point = self.street_data.nodes[vertex.node_id]
-            street_point = self.street_data.get_way_point(seg_lin_ref)
+        node_point = self.street_data.nodes[vertex.node_id]
 
-            d0 = geodesic_distance(
-                geometry.Point(node_point.lon, node_point.lat), street_point
+        for midseg_ref in self.node_to_midseg_refs[vertex.node_id]:
+            midseg_point = self.street_data.get_way_point(midseg_ref)
+
+            distance = geodesic_distance(
+                geometry.Point(node_point.lon, node_point.lat), midseg_point
             )
-            d1 = geodesic_distance(street_point, stop_point)
-            distance = d0 + d1
             dt = distance / WALKING_SPEED
             weight = dt * WALKING_RELUCTANCE
 
-            adj_vertex = AtStopVertex(
-                stop_id, vertex.time + pd.Timedelta(seconds=dt)
+            adj_vertex = MidstreetVertex(
+                midseg_ref, vertex.time + pd.Timedelta(seconds=dt)
             )
             edge = Edge(adj_vertex, weight)
 
             edges.append(edge)
+
+        return edges
+
+    def _outgoing_midstreet_vertex(
+        self, vertex: MidstreetVertex
+    ) -> list[Edge]:
+        edges: list[Edge] = []
 
         return edges
 
@@ -1681,6 +1719,8 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
             return self._outgoing_street_node_vertex(vertex)
         elif isinstance(vertex, AtStopVertex):
             return self._outgoing_at_stop_vertex(vertex)
+        elif isinstance(vertex, MidstreetVertex):
+            return self._outgoing_midstreet_vertex(vertex)
         else:
             return []
 
