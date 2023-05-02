@@ -1453,11 +1453,12 @@ class StreetEdgeProvider(EdgeProvider):
 
         return edges
 
-    def _get_forward_topological_segment(
+    def _get_forward_block(
         self, start: NodeRef
     ) -> tuple[geometry.LineString, NodeId] | None:
-        """Get the segment beginning at a node and continuing forward to the
-        next junction.
+        """Get the block (ie, the segment of a road between two junctions)
+            beginning at a node and continuing forward to the next junction
+            node.
 
         Args:
             start (NodeRef): The node to start from.
@@ -1500,11 +1501,11 @@ class StreetEdgeProvider(EdgeProvider):
 
         return ls, nds[-1]
 
-    def _get_reverse_topological_segment(
+    def _get_reverse_block(
         self, start: NodeRef
     ) -> tuple[geometry.LineString, NodeId] | None:
-        """Get the segment beginning at a node and continuing backward to the
-        previous junction.
+        """Get the block beginning at a node and continuing backward to the
+        previous junction node.
 
         Args:
             start (NodeRef): The node to start from.
@@ -1556,16 +1557,16 @@ class StreetEdgeProvider(EdgeProvider):
         # for each referenced way
         for node_ref in self.osm_data.node_refs[vertex.node_id]:
             # get forward segment
-            topo_seg = self._get_forward_topological_segment(node_ref)
-            if topo_seg is not None:
-                ls, seg_end_node_id = topo_seg
+            block = self._get_forward_block(node_ref)
+            if block is not None:
+                ls, block_end_node_id = block
 
                 distance = geodesic_linestring_length(ls)
                 dt = distance / WALKING_SPEED
                 weight = dt * WALKING_RELUCTANCE
 
                 vertex = StreetNodeVertex(
-                    seg_end_node_id,
+                    block_end_node_id,
                     vertex.time + pd.Timedelta(seconds=dt),
                 )
                 edge = Edge(vertex, weight)
@@ -1574,16 +1575,16 @@ class StreetEdgeProvider(EdgeProvider):
 
             # get reverse segment
             if not self.osm_data.is_oneway(node_ref.way_id):
-                topo_seg = self._get_reverse_topological_segment(node_ref)
-                if topo_seg is not None:
-                    ls, seg_end_node_id = topo_seg
+                block = self._get_reverse_block(node_ref)
+                if block is not None:
+                    ls, block_end_node_id = block
 
                     distance = geodesic_linestring_length(ls)
                     dt = distance / WALKING_SPEED
                     weight = dt * WALKING_RELUCTANCE
 
                     vertex = StreetNodeVertex(
-                        seg_end_node_id,
+                        block_end_node_id,
                         vertex.time + pd.Timedelta(seconds=dt),
                     )
                     edge = Edge(vertex, weight)
