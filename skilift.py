@@ -1150,6 +1150,7 @@ class StreetData:
 
         print("Indexing ways...", end="", flush=True)
         self.node_refs = self._get_node_references()
+        self.way_vertex_nodes = self._get_way_vertex_nodes()
         print("done")
 
         print("Getting node elevations...", end="", flush=True)
@@ -1181,6 +1182,32 @@ class StreetData:
                 nd_refs[nd].add(NodeRef(way_id, i))
 
         return nd_refs
+
+    def _get_way_vertex_nodes(
+        self,
+    ) -> dict[WayId, list[ArrayIndex]]:
+        """Returns a dictionary of "vertex nodes" for each way. A vertex node is
+        a node that is either referenced by a way more than once, or is the
+        first or last node. Each vertex node is represented by the index of the
+        node in the way.
+        """
+
+        way_vertex_nodes: dict[WayId, list[ArrayIndex]] = {}
+
+        for way_id, way in self.ways.items():
+            vertex_nodes: list[ArrayIndex] = []
+
+            for i, nd in enumerate(way.nds):
+                if (
+                    i == 0
+                    or i == len(way.nds) - 1
+                    or len(self.node_refs[nd]) > 1
+                ):
+                    vertex_nodes.append(i)
+
+            way_vertex_nodes[way_id] = vertex_nodes
+
+        return way_vertex_nodes
 
     def _generate_way_segments(
         self,
