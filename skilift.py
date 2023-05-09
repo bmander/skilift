@@ -1336,18 +1336,29 @@ class StreetData:
 
         Returns:
             int: The index of the next vertex node in the way, inclusive
-                of the node at the specified index."""
+                of the node at the specified index.
+                
+        Raises:
+            IndexError: If the node index is out of range."""
 
         way_vertex_nodes = self.way_vertex_nodes[node_ref.way_id]
+
+        if (
+            node_ref.node_index < way_vertex_nodes[0]
+            or node_ref.node_index > way_vertex_nodes[-1]
+        ):
+            raise IndexError("node index is out of range")
 
         if search_forward:
             for way_vertex_node in way_vertex_nodes:
                 if way_vertex_node >= node_ref.node_index:
                     return way_vertex_node
+            return way_vertex_nodes[-1]
         else:
             for way_vertex_node in reversed(way_vertex_nodes):
                 if way_vertex_node <= node_ref.node_index:
                     return way_vertex_node
+            return way_vertex_nodes[0]
 
     def is_oneway(self, way_id: WayId) -> bool:
         """Check if a way is one-way.
