@@ -1329,8 +1329,7 @@ class StreetData:
         made. The search is inclusive of the node at the specified index.
 
         Args:
-            way_id (int): The ID of the way.
-            node_index (int): The index of the node in the way.
+            node_ref (NodeRef)): The way_id and node_index of the node.
             search_forward (bool, optional): If true, finds the next vertex
                 node. If false, finds the previous vertex node. Defaults to
                 True.
@@ -1339,28 +1338,16 @@ class StreetData:
             int: The index of the next vertex node in the way, inclusive
                 of the node at the specified index."""
 
-        way = self.ways[node_ref.way_id]
-
-        if node_ref.node_index < 0 or node_ref.node_index >= len(way.nds):
-            raise ValueError(
-                f"Node index {node_ref.node_index} is out of range for "
-                f"way {node_ref.way_id}"
-            )
+        way_vertex_nodes = self.way_vertex_nodes[node_ref.way_id]
 
         if search_forward:
-            step = 1
-            end = len(way.nds) - 1
+            for way_vertex_node in way_vertex_nodes:
+                if way_vertex_node >= node_ref.node_index:
+                    return way_vertex_node
         else:
-            step = -1
-            end = 0
-
-        for i in range(node_ref.node_index, end, step):
-            nd = way.nds[i]
-            if len(self.node_refs[nd]) > 1:
-                return i
-
-        # if we get here, we've reached the end of the way
-        return end
+            for way_vertex_node in reversed(way_vertex_nodes):
+                if way_vertex_node <= node_ref.node_index:
+                    return way_vertex_node
 
     def is_oneway(self, way_id: WayId) -> bool:
         """Check if a way is one-way.
