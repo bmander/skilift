@@ -388,7 +388,7 @@ class GTFSFeed:
             stop_pattern_id_trips_df, on="trip_id"
         )
         self.stop_times = self.stop_times.merge(
-            self._trips[["trip_id", "service_id"]], on="trip_id"
+            self._trips.reset_index()[["trip_id", "service_id"]], on="trip_id"
         )
 
         # create dict of stop_id -> stop_pattern_ids
@@ -542,7 +542,7 @@ class GTFSFeed:
             )
 
     def get_stop_by_name(self, name: str) -> GTFSID:
-        stop_id = self._stops[self._stops.stop_name == name]["stop_id"].iloc[0]
+        stop_id = self._stops[self._stops.stop_name == name].index[0]
 
         if (
             isinstance(stop_id, str)
@@ -562,7 +562,7 @@ class GTFSFeed:
         return [
             (stop_id, lon, lat)
             for stop_id, lon, lat in zip(
-                self._stops.stop_id,
+                self._stops.index,
                 self._stops.stop_lon,
                 self._stops.stop_lat,
             )
@@ -1099,7 +1099,7 @@ class MidstreetVertex(AbstractVertex):
         self.time = time
 
     def __repr__(self) -> str:
-        return f"MidStreetNode({self.midseg_ref}, {self.time})"
+        return f"MidStreetVertex({self.midseg_ref}, {self.time})"
 
     def as_tuple(self) -> tuple[MidSegmentRef, pd.Timestamp]:
         return (self.midseg_ref, self.time)
