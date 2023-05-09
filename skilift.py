@@ -1170,14 +1170,11 @@ class StreetData:
     def _get_node_references(self) -> dict[NodeId, set[NodeRef]]:
         """Get a dictionary of node references.
 
-        Args:
-            ways (Dict): A dictionary with the format {way_id: Way}.
-
         Returns:
             Dict: A dictionary of instances in which a node was used in a way.
                 The format is {node_id: {(way_id, node_index)}}"""
 
-        nd_refs: dict[int, set[NodeRef]] = defaultdict(set)
+        nd_refs: dict[NodeId, set[NodeRef]] = defaultdict(set)
 
         for way_id, way in self.ways.items():
             for i, nd in enumerate(way.nds):
