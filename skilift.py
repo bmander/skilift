@@ -54,6 +54,9 @@ class NodeRef(NamedTuple):
 
 
 class SegmentRef(NamedTuple):
+    """A segment the space between two nodes in a way. It is defined by the
+    index of the first node."""
+
     way_id: WayId
     segment_index: SegmentIndex
 
@@ -1633,9 +1636,6 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
         ] = defaultdict(set)
 
         for stop_id, midseg_ref in links:
-            # stopid -> midseg_ref
-            self.stop_to_midseg_ref[stop_id] = midseg_ref
-
             # midseg_ref -> stop_ids
             self.midseg_ref_to_stops[midseg_ref].add(stop_id)
 
@@ -1650,6 +1650,12 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
             self.node_to_midseg_refs[seg_end_node].add(midseg_ref)
 
     def _find_links(self) -> list[tuple[GTFSID, MidSegmentRef]]:
+        """Find the links between stops and street segments.
+
+        Returns:
+            list[tuple[GTFSID, MidSegmentRef]]: A list of tuples containing
+                the stop ID and the reference to the street segment.
+        """
         links = []
 
         for (
@@ -1665,6 +1671,8 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
         return links
 
     def _outgoing_at_stop_vertex(self, vertex: AtStopVertex) -> list[Edge]:
+        # In the case of an AtStopVertex, returns a MidstreetVertex at the
+        # nearest point on the street to the stop.
         midseg_ref = self.stop_to_midseg_ref.get(vertex.stop_id)
         if midseg_ref is None:
             return []
@@ -1686,6 +1694,8 @@ class TransitStreetConnectionEdgeProvider(EdgeProvider):
     def _outgoing_street_node_vertex(
         self, vertex: StreetNodeVertex
     ) -> list[Edge]:
+        # In the case of a StreetNodeVertex, returns all MidstreetVertices that
+        # are adjacent to the node.
         edges: list[Edge] = []
 
         node_point = self.street_data.nodes[vertex.node_id]
