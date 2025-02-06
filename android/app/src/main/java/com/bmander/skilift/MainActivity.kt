@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -209,11 +210,6 @@ fun FloatingDirectionsInput(
     }
 }
 
-/**
- * LocationEntryField renders a location “field” that can be either in an editable mode
- * (with an auto‑complete dropdown of address suggestions) or in token mode (showing an
- * immutable token with a clear “×” button). The convention is that a token value is wrapped in [ and ].
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationEntryField(
@@ -222,6 +218,8 @@ fun LocationEntryField(
     onValueChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
+    val context = LocalContext.current
+
     // If the value is already tokenized (starts with "[" and ends with "]") then show it as a token.
     val isToken = value.startsWith("[") && value.endsWith("]")
     if (isToken) {
@@ -241,12 +239,21 @@ fun LocationEntryField(
     } else {
         // Editable mode with reactive suggestions.
         var query by remember { mutableStateOf(value) }
-        // Update local query when the external value changes.
+        // Keep the local query in sync with the external value.
         LaunchedEffect(value) {
             query = value
         }
-        val addressResolver = remember { AddressResolverService() }
-        val suggestions = addressResolver.getSuggestions(query)
+
+        val addressResolver = remember { AddressResolverService(context) }
+        // Maintain a state for suggestions.
+        var suggestions by remember { mutableStateOf<List<AddressSuggestion>>(emptyList()) }
+
+        // Launch a coroutine whenever 'query' changes to update the suggestions.
+        LaunchedEffect(query) {
+            suggestions = addressResolver.getSuggestions(query)
+            Log.d("LocationEntryField", "Suggestions: $suggestions")
+        }
+
         var expanded by remember { mutableStateOf(false) }
         val focusManager = LocalFocusManager.current
 
@@ -256,6 +263,7 @@ fun LocationEntryField(
                 onValueChange = { newValue ->
                     query = newValue
                     onValueChange(newValue)
+                    // Show dropdown if there is a non-empty query and suggestions are available.
                     expanded = newValue.isNotEmpty() && suggestions.isNotEmpty()
                 },
                 label = { Text(label) },
@@ -264,7 +272,7 @@ fun LocationEntryField(
                     .onFocusChanged { /* Removed auto-tokenizing logic here */ },
                 keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
-                    onDone = { 
+                    onDone = {
                         focusManager.clearFocus()
                         suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
                             onValueChange("[$match]")
@@ -277,7 +285,7 @@ fun LocationEntryField(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.fillMaxWidth(),
-                properties = PopupProperties(focusable=false)
+                properties = PopupProperties(focusable = false)
             ) {
                 suggestions.forEach { suggestion ->
                     DropdownMenuItem(
