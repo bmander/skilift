@@ -37,6 +37,10 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 
 // UI state data class
@@ -72,6 +76,13 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("com.bmander.skilift", MODE_PRIVATE)
         Configuration.getInstance().load(this, prefs)
         Configuration.getInstance().userAgentValue = "com.bmander.skilift"
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1001)
+        }
 
         enableEdgeToEdge()
         setContent {
