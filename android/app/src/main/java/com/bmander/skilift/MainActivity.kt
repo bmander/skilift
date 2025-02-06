@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.libraries.places.api.model.AutocompletePrediction
+import kotlinx.coroutines.launch
 
 /**
  * Utility to create a simple “person” bitmap used by the MyLocation overlay.
@@ -279,6 +281,7 @@ fun LocationEntryField(
 
             var expanded by remember { mutableStateOf(false) }
             val focusManager = LocalFocusManager.current
+            val scope = rememberCoroutineScope()
 
             Box {
                 OutlinedTextField(
@@ -309,16 +312,23 @@ fun LocationEntryField(
                         DropdownMenuItem(
                             text = { Text(suggestion.getFullText(null).toString()) },
                             onClick = {
-                                // Here you would normally resolve the suggestion to a real location.
-                                // For this sample, we create a dummy resolved Address.
-                                val resolvedLocation = TerminusLocation.Address(
-                                    address = suggestion.getFullText(null).toString(),
-                                    latitude = 0.0, // TODO: Replace with real data.
-                                    longitude = 0.0 // TODO: Replace with real data.
-                                )
-                                onValueChange(LocationEntryContents.Resolved(resolvedLocation))
-                                expanded = false
-                                focusManager.clearFocus()
+                                scope.launch {
+                                    try {
+                                        val place = addressResolver.fetchPlaceDetails(suggestion.placeId)
+                                        val latLng = place.latLng
+                                        val addressText = place.address ?: suggestion.getFullText(null).toString()
+                                        val resolvedLocation = TerminusLocation.Address(
+                                            address = addressText,
+                                            latitude = latLng?.latitude ?: 0.0,
+                                            longitude = latLng?.longitude ?: 0.0
+                                        )
+                                        onValueChange(LocationEntryContents.Resolved(resolvedLocation))
+                                        expanded = false
+                                        focusManager.clearFocus()
+                                    } catch (e: Exception) {
+                                        // Handle error
+                                    }
+                                }
                             }
                         )
                     }
