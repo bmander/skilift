@@ -41,6 +41,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 
 
 // UI state data class
@@ -173,6 +175,24 @@ fun MapComponent(modifier: Modifier = Modifier) {
             setMultiTouchControls(true)
             controller.setZoom(12.0)
             controller.setCenter(GeoPoint(47.6062, -122.3321))
+        }
+    }
+
+    val hasPermission = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val locationOverlay = remember {
+        MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
+    }
+
+    DisposableEffect(Unit) {
+        if (hasPermission) {
+            locationOverlay.enableMyLocation()
+            mapView.overlays.add(locationOverlay)
+        }
+        onDispose {
+            locationOverlay.disableMyLocation()
+            mapView.overlays.remove(locationOverlay)
         }
     }
 
