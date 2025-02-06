@@ -260,18 +260,16 @@ fun LocationEntryField(
                 label = { Text(label) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) {
-                            // When focus is lost, if the query exactly matches one suggestion, tokenize it.
-                            suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
-                                onValueChange("[$match]")
-                                expanded = false
-                            }
-                        }
-                    },
+                    .onFocusChanged { /* Removed auto-tokenizing logic here */ },
                 keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
-                    onDone = { focusManager.clearFocus() }
+                    onDone = { 
+                        focusManager.clearFocus()
+                        suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
+                            onValueChange("[$match]")
+                            expanded = false
+                        }
+                    }
                 )
             )
             DropdownMenu(
