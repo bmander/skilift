@@ -66,6 +66,7 @@ import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.libraries.places.api.model.AutocompletePrediction
 
 /**
  * Utility to create a simple “person” bitmap used by the MyLocation overlay.
@@ -246,7 +247,7 @@ fun LocationEntryField(
 
         val addressResolver = remember { AddressResolverService(context) }
         // Maintain a state for suggestions.
-        var suggestions by remember { mutableStateOf<List<AddressSuggestion>>(emptyList()) }
+        var suggestions by remember { mutableStateOf<List<AutocompletePrediction>>(emptyList()) }
 
         // Launch a coroutine whenever 'query' changes to update the suggestions.
         LaunchedEffect(query) {
@@ -274,14 +275,14 @@ fun LocationEntryField(
                 keyboardActions = KeyboardActions(
                     onDone = {
                         focusManager.clearFocus()
-                        suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
-                            onValueChange("[$match]")
-                            expanded = false
-                        }
+//                        suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
+//                            onValueChange("[$match]")
+//                            expanded = false
+//                        }
                     }
                 )
             )
-            DropdownMenu(
+            DropdownMenu( // TODO suggestions should be reactive
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.fillMaxWidth(),
@@ -289,10 +290,9 @@ fun LocationEntryField(
             ) {
                 suggestions.forEach { suggestion ->
                     DropdownMenuItem(
-                        text = { Text(suggestion.address) },
+                        text = { Text(suggestion.getFullText(null).toString()) },
                         onClick = {
                             onValueChange("[$suggestion]")
-                            query = suggestion.address
                             expanded = false
                             focusManager.clearFocus()
                         }

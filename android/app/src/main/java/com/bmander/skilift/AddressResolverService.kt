@@ -2,6 +2,7 @@ package com.bmander.skilift
 
 import android.content.Context
 import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.AutocompletePrediction
 import com.google.android.libraries.places.api.net.PlacesClient
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import com.google.android.libraries.places.api.net.FetchPlaceRequest
@@ -37,7 +38,7 @@ class AddressResolverService(context: Context) {
      *
      * Throws an exception if the Places API call fails.
      */
-    suspend fun getSuggestions(query: String): List<AddressSuggestion> =
+    suspend fun getSuggestions(query: String): List<AutocompletePrediction> =
         suspendCancellableCoroutine { cont ->
             if (query.isEmpty()) {
                 cont.resume(emptyList())
@@ -49,15 +50,7 @@ class AddressResolverService(context: Context) {
 
             placesClient.findAutocompletePredictions(request)
                 .addOnSuccessListener { response ->
-                    val suggestions = response.autocompletePredictions.map { prediction ->
-                        AddressSuggestion(
-                            address = prediction.getFullText(null).toString(),
-                            latitude = 0.0,  // Placeholder value.
-                            longitude = 0.0, // Placeholder value.
-                            placeId = prediction.placeId
-                        )
-                    }
-                    cont.resume(suggestions)
+                    cont.resume(response.autocompletePredictions)
                 }
                 .addOnFailureListener { exception ->
                     cont.resumeWithException(exception)
