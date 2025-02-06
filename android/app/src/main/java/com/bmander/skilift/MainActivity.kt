@@ -47,6 +47,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.MapEventsOverlay
+import androidx.compose.material3.AlertDialog
+import org.osmdroid.events.MapEventsReceiver
 
 fun createBlueCircleBitmap(size: Int): Bitmap {
     val paint = Paint().apply {
@@ -181,7 +184,10 @@ fun FloatingDirectionsInput(
 }
 
 @Composable
-fun MapComponent(modifier: Modifier = Modifier) {
+fun MapComponent(
+    modifier: Modifier = Modifier,
+    viewModel: TripPlannerViewModel = viewModel()
+) {
     val context = LocalContext.current
     val mapView = remember {
         MapView(context).apply {
@@ -202,15 +208,55 @@ fun MapComponent(modifier: Modifier = Modifier) {
         }
     }
 
+    var showContextMenu by remember { mutableStateOf(false) }
+    var longPressPoint by remember { mutableStateOf<GeoPoint?>(null) }
+
+    val eventsOverlay = remember {
+        MapEventsOverlay(object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint) = false
+            override fun longPressHelper(p: GeoPoint): Boolean {
+                longPressPoint = p
+                showContextMenu = true
+                return true
+            }
+        })
+    }
+
     DisposableEffect(Unit) {
         if (hasPermission) {
             locationOverlay.enableMyLocation()
             mapView.overlays.add(locationOverlay)
         }
+        mapView.overlays.add(eventsOverlay)
         onDispose {
             locationOverlay.disableMyLocation()
             mapView.overlays.remove(locationOverlay)
+            mapView.overlays.remove(eventsOverlay)
         }
+    }
+
+    if (showContextMenu && longPressPoint != null) {
+        AlertDialog(
+            onDismissRequest = { showContextMenu = false },
+            title = { Text("Location Selected") },
+            text = { Text("Latitude: ${longPressPoint!!.latitude}, Longitude: ${longPressPoint!!.longitude}") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateStartLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
+                    showContextMenu = false
+                }) {
+                    Text("Set as Start")
+                }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    viewModel.updateEndLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
+                    showContextMenu = false
+                }) {
+                    Text("Set as End")
+                }
+            }
+        )
     }
 
     DisposableEffect(Unit) {
