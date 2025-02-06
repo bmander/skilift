@@ -49,6 +49,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.MapEventsOverlay
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
 import org.osmdroid.events.MapEventsReceiver
 
 fun createBlueCircleBitmap(size: Int): Bitmap {
@@ -201,6 +202,7 @@ fun MapComponent(
     val hasPermission = ContextCompat.checkSelfPermission(
         context, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
+
     val locationOverlay = remember {
         MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply {
             setPersonIcon(createBlueCircleBitmap(30))
@@ -236,27 +238,23 @@ fun MapComponent(
     }
 
     if (showContextMenu && longPressPoint != null) {
-        AlertDialog(
-            onDismissRequest = { showContextMenu = false },
-            title = { Text("Location Selected") },
-            text = { Text("Latitude: ${longPressPoint!!.latitude}, Longitude: ${longPressPoint!!.longitude}") },
-            confirmButton = {
-                Button(onClick = {
+        Dialog(onDismissRequest = { showContextMenu = false }) {
+            LocationPicker(
+                latitude = longPressPoint!!.latitude,
+                longitude = longPressPoint!!.longitude,
+                onSetAsStart = {
                     viewModel.updateStartLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
                     showContextMenu = false
-                }) {
-                    Text("Set as Start")
-                }
-            },
-            dismissButton = {
-                Button(onClick = {
+                },
+                onSetAsEnd = {
                     viewModel.updateEndLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
                     showContextMenu = false
-                }) {
-                    Text("Set as End")
+                },
+                onDismiss = {
+                    showContextMenu = false
                 }
-            }
-        )
+            )
+        }
     }
 
     DisposableEffect(Unit) {
