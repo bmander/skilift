@@ -88,30 +88,59 @@ fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap 
     return bitmap
 }
 
-// UI state data class
+sealed class TerminusLocation {
+    data class CurrentLocation(val latitude: Double, val longitude: Double) : TerminusLocation()
+    data class Address(val address: String, val latitude: Double, val longitude: Double) : TerminusLocation()
+    data class MapPoint(val latitude: Double, val longitude: Double) : TerminusLocation()
+}
+
+sealed class LocationEntryContents {
+    data class TextEntry(val address: String) : LocationEntryContents()
+    data class Resolved(val type: TerminusLocation) : LocationEntryContents()
+}
+
+// An extension to get a display string from an entry:
+val LocationEntryContents.displayText: String
+    get() = when (this) {
+        is LocationEntryContents.TextEntry -> address
+        is LocationEntryContents.Resolved -> when (val loc = type) {
+            is TerminusLocation.CurrentLocation -> "Current Location (${loc.latitude}, ${loc.longitude})"
+            is TerminusLocation.Address -> loc.address
+            is TerminusLocation.MapPoint -> "Map Point (${loc.latitude}, ${loc.longitude})"
+        }
+    }
+
+// Note: We now have two “entry” fields.
 data class TripPlannerState(
-    val startLocation: String = "",
-    val endLocation: String = "",
+    val startEntry: LocationEntryContents = LocationEntryContents.TextEntry(""),
+    val endEntry: LocationEntryContents = LocationEntryContents.TextEntry(""),
     val isRouteDisplayed: Boolean = false
-)
+) {
+    // Helper getters: if the entry is resolved, return its location; otherwise null.
+    val startLocation: TerminusLocation?
+        get() = (startEntry as? LocationEntryContents.Resolved)?.type
+    val endLocation: TerminusLocation?
+        get() = (endEntry as? LocationEntryContents.Resolved)?.type
+}
 
 class TripPlannerViewModel : ViewModel() {
     private val _uiState = mutableStateOf(TripPlannerState())
     val uiState = _uiState
 
-    fun updateStartLocation(newStart: String) {
-        _uiState.value = _uiState.value.copy(startLocation = newStart)
+    fun updateStartEntry(newEntry: LocationEntryContents) {
+        _uiState.value = _uiState.value.copy(startEntry = newEntry)
     }
 
-    fun updateEndLocation(newEnd: String) {
-        _uiState.value = _uiState.value.copy(endLocation = newEnd)
+    fun updateEndEntry(newEntry: LocationEntryContents) {
+        _uiState.value = _uiState.value.copy(endEntry = newEntry)
     }
 
     fun planTrip() {
-        // Insert your trip planning logic here.
+        // Insert your trip planning logic here using uiState.value.startLocation and endLocation.
         _uiState.value = _uiState.value.copy(isRouteDisplayed = true)
     }
 }
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -153,10 +182,10 @@ fun TripPlannerApp(viewModel: TripPlannerViewModel = viewModel()) {
 
             if (!state.isRouteDisplayed) {
                 FloatingDirectionsInput(
-                    startLocation = state.startLocation,
-                    endLocation = state.endLocation,
-                    onStartLocationChange = { viewModel.updateStartLocation(it) },
-                    onEndLocationChange = { viewModel.updateEndLocation(it) },
+                    startEntry = state.startEntry,
+                    endEntry = state.endEntry,
+                    onStartEntryChange = { viewModel.updateStartEntry(it) },
+                    onEndEntryChange = { viewModel.updateEndEntry(it) },
                     onPlanTrip = { viewModel.planTrip() },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -167,22 +196,19 @@ fun TripPlannerApp(viewModel: TripPlannerViewModel = viewModel()) {
     }
 }
 
-/**
- * FloatingDirectionsInput now uses our custom [LocationEntryField] for each location.
- */
+
 @Composable
 fun FloatingDirectionsInput(
-    startLocation: String,
-    endLocation: String,
-    onStartLocationChange: (String) -> Unit,
-    onEndLocationChange: (String) -> Unit,
+    startEntry: LocationEntryContents,
+    endEntry: LocationEntryContents,
+    onStartEntryChange: (LocationEntryContents) -> Unit,
+    onEndEntryChange: (LocationEntryContents) -> Unit,
     onPlanTrip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val addressResolver =  remember{ AddressResolverService(context)  }
+    val addressResolver = remember { AddressResolverService(context) }
 
-    // Use a Surface to create a floating card-like effect.
     Surface(
         modifier = modifier,
         shadowElevation = 8.dp,
@@ -192,17 +218,17 @@ fun FloatingDirectionsInput(
         Column(modifier = Modifier.padding(16.dp)) {
             LocationEntryField(
                 label = "Start Location",
-                value = startLocation,
-                onValueChange = onStartLocationChange,
-                onClear = { onStartLocationChange("") },
+                value = startEntry,
+                onValueChange = onStartEntryChange,
+                onClear = { onStartEntryChange(LocationEntryContents.TextEntry("")) },
                 addressResolver = addressResolver
             )
             Spacer(modifier = Modifier.height(8.dp))
             LocationEntryField(
                 label = "End Location",
-                value = endLocation,
-                onValueChange = onEndLocationChange,
-                onClear = { onEndLocationChange("") },
+                value = endEntry,
+                onValueChange = onEndEntryChange,
+                onClear = { onEndEntryChange(LocationEntryContents.TextEntry("")) },
                 addressResolver = addressResolver
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -220,86 +246,88 @@ fun FloatingDirectionsInput(
 @Composable
 fun LocationEntryField(
     label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
+    value: LocationEntryContents,
+    onValueChange: (LocationEntryContents) -> Unit,
     onClear: () -> Unit,
     addressResolver: AddressResolverService
 ) {
-    val isToken = value.startsWith("[") && value.endsWith("]")
-    if (isToken) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = {},
-            label = { Text(label) },
-            readOnly = true,
-            trailingIcon = {
-                IconButton(onClick = onClear) {
-                    Icon(Icons.Filled.Close, contentDescription = "Clear")
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = TextFieldDefaults.outlinedTextFieldColors()
-        )
-    } else {
-        var suggestions by remember { mutableStateOf<List<AutocompletePrediction>>(emptyList()) }
-
-        LaunchedEffect(value) {
-            suggestions = addressResolver.getSuggestions(value)
-            Log.d("LocationEntryField", "Suggestions: $suggestions")
-        }
-
-        // Local transient state to control the suggestions dropdown.
-        var expanded by remember { mutableStateOf(false) }
-        val focusManager = LocalFocusManager.current
-
-        Box {
+    when (value) {
+        is LocationEntryContents.Resolved -> {
+            // Render a read-only “token”
             OutlinedTextField(
-                value = value,
-                onValueChange = { newValue ->
-                    onValueChange(newValue)
-                    // Update the dropdown state based on the new value and available suggestions.
-                    expanded = newValue.isNotEmpty() && suggestions.isNotEmpty()
-                },
+                value = value.displayText,
+                onValueChange = {},
                 label = { Text(label) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { /* Optionally trigger effects based on focus */ },
-                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        focusManager.clearFocus()
-                        // You might want to commit the value here if needed.
+                readOnly = true,
+                trailingIcon = {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear")
                     }
-                )
-            )
-
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
+                },
                 modifier = Modifier.fillMaxWidth(),
-                properties = PopupProperties(focusable = false)
-            ) {
-                suggestions.forEach { suggestion ->
-                    DropdownMenuItem(
-                        text = { Text(suggestion.getFullText(null).toString()) },
-                        onClick = {
-                            // Commit the selected suggestion as the new (final) value.
-                            onValueChange("[$suggestion]")
-                            expanded = false
+                colors = TextFieldDefaults.outlinedTextFieldColors()
+            )
+        }
+        is LocationEntryContents.TextEntry -> {
+            var suggestions by remember { mutableStateOf<List<AutocompletePrediction>>(emptyList()) }
+
+            // Update suggestions when the text changes.
+            LaunchedEffect(value.address) {
+                suggestions = addressResolver.getSuggestions(value.address)
+                Log.d("LocationEntryField", "Suggestions: $suggestions")
+            }
+
+            var expanded by remember { mutableStateOf(false) }
+            val focusManager = LocalFocusManager.current
+
+            Box {
+                OutlinedTextField(
+                    value = value.address,
+                    onValueChange = { newText ->
+                        onValueChange(LocationEntryContents.TextEntry(newText))
+                        expanded = newText.isNotEmpty() && suggestions.isNotEmpty()
+                    },
+                    label = { Text(label) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { /* Optionally react to focus changes */ },
+                    keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
                             focusManager.clearFocus()
                         }
                     )
+                )
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    properties = PopupProperties(focusable = false)
+                ) {
+                    suggestions.forEach { suggestion ->
+                        DropdownMenuItem(
+                            text = { Text(suggestion.getFullText(null).toString()) },
+                            onClick = {
+                                // Here you would normally resolve the suggestion to a real location.
+                                // For this sample, we create a dummy resolved Address.
+                                val resolvedLocation = TerminusLocation.Address(
+                                    address = suggestion.getFullText(null).toString(),
+                                    latitude = 0.0, // TODO: Replace with real data.
+                                    longitude = 0.0 // TODO: Replace with real data.
+                                )
+                                onValueChange(LocationEntryContents.Resolved(resolvedLocation))
+                                expanded = false
+                                focusManager.clearFocus()
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-
-/**
- * MapComponent remains largely the same except that when a location is chosen via a map long-press,
- * we update the view model with the token "[selected from map]".
- */
 @Composable
 fun MapComponent(
     modifier: Modifier = Modifier,
@@ -359,11 +387,19 @@ fun MapComponent(
                 latitude = longPressPoint!!.latitude,
                 longitude = longPressPoint!!.longitude,
                 onSetAsStart = {
-                    viewModel.updateStartLocation("[selected from map]")
+                    viewModel.updateStartEntry(
+                        LocationEntryContents.Resolved(
+                            TerminusLocation.MapPoint(longPressPoint!!.latitude, longPressPoint!!.longitude)
+                        )
+                    )
                     showContextMenu = false
                 },
                 onSetAsEnd = {
-                    viewModel.updateEndLocation("[selected from map]")
+                    viewModel.updateEndEntry(
+                        LocationEntryContents.Resolved(
+                            TerminusLocation.MapPoint(longPressPoint!!.latitude, longPressPoint!!.longitude)
+                        )
+                    )
                     showContextMenu = false
                 },
                 onDismiss = { showContextMenu = false }
