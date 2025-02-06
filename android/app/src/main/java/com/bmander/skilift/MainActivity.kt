@@ -69,6 +69,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.libraries.places.api.model.AutocompletePrediction
 import kotlinx.coroutines.launch
+import org.osmdroid.views.overlay.Marker
 
 /**
  * Utility to create a simple “person” bitmap used by the MyLocation overlay.
@@ -376,6 +377,57 @@ fun MapComponent(
                 return true
             }
         })
+    }
+
+    val state = viewModel.uiState.value
+    val startLocation = state.startLocation
+    val endLocation = state.endLocation
+
+    val startMarker = remember { Marker(mapView) }
+    val endMarker = remember { Marker(mapView) }
+
+    LaunchedEffect(startLocation) {
+        mapView.overlays.remove(startMarker)
+        when (startLocation) {
+            is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
+                val lat = when (startLocation) {
+                    is TerminusLocation.Address -> startLocation.latitude
+                    is TerminusLocation.MapPoint -> startLocation.latitude
+                    else -> 0.0
+                }
+                val lng = when (startLocation) {
+                    is TerminusLocation.Address -> startLocation.longitude
+                    is TerminusLocation.MapPoint -> startLocation.longitude
+                    else -> 0.0
+                }
+                startMarker.title = "Start"
+                startMarker.position = GeoPoint(lat, lng)
+                mapView.overlays.add(startMarker)
+            }
+            else -> {}
+        }
+    }
+
+    LaunchedEffect(endLocation) {
+        mapView.overlays.remove(endMarker)
+        when (endLocation) {
+            is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
+                val lat = when (endLocation) {
+                    is TerminusLocation.Address -> endLocation.latitude
+                    is TerminusLocation.MapPoint -> endLocation.latitude
+                    else -> 0.0
+                }
+                val lng = when (endLocation) {
+                    is TerminusLocation.Address -> endLocation.longitude
+                    is TerminusLocation.MapPoint -> endLocation.longitude
+                    else -> 0.0
+                }
+                endMarker.title = "End"
+                endMarker.position = GeoPoint(lat, lng)
+                mapView.overlays.add(endMarker)
+            }
+            else -> {}
+        }
     }
 
     DisposableEffect(Unit) {
