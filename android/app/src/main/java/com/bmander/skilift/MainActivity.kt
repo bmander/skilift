@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -387,7 +388,6 @@ fun MapComponent(
     val endMarker = remember { Marker(mapView) }
 
     LaunchedEffect(startLocation) {
-        mapView.overlays.remove(startMarker)
         when (startLocation) {
             is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
                 startMarker.title = "Start"
@@ -399,7 +399,6 @@ fun MapComponent(
     }
 
     LaunchedEffect(endLocation) {
-        mapView.overlays.remove(endMarker)
         when (endLocation) {
             is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
                 endMarker.title = "End"
