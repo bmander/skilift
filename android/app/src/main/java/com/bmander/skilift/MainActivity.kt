@@ -39,11 +39,25 @@ import org.osmdroid.views.MapView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 
+fun createBlueCircleBitmap(size: Int): Bitmap {
+    val paint = Paint().apply {
+        color = Color.BLUE
+        style = Paint.Style.FILL
+    }
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+    return bitmap
+}
 
 // UI state data class
 data class TripPlannerState(
@@ -182,7 +196,10 @@ fun MapComponent(modifier: Modifier = Modifier) {
         context, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
     val locationOverlay = remember {
-        MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
+        MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply {
+            setPersonIcon(createBlueCircleBitmap(30))
+            setPersonAnchor(0.5f, 0.5f)
+        }
     }
 
     DisposableEffect(Unit) {
