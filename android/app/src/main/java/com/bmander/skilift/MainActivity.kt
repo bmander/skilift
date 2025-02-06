@@ -6,10 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
@@ -48,18 +45,23 @@ import androidx.core.content.ContextCompat
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.MapEventsOverlay
-import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.window.Dialog
 import org.osmdroid.events.MapEventsReceiver
 
-fun createBlueCircleBitmap(size: Int): Bitmap {
-    val paint = Paint().apply {
-        color = Color.BLUE
-        style = Paint.Style.FILL
-    }
+fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+    val centerX = size / 2f
+    val centerY = size / 2f
+    val radius = size / 2f * (1f - borderFraction)
+    canvas.drawCircle(centerX, centerY, size / 2f, Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    })
+    canvas.drawCircle(centerX, centerY, radius, Paint().apply {
+        color = Color.BLUE
+        style = Paint.Style.FILL
+    })
     return bitmap
 }
 
@@ -205,7 +207,7 @@ fun MapComponent(
 
     val locationOverlay = remember {
         MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply {
-            setPersonIcon(createBlueCircleBitmap(30))
+            setPersonIcon(currentUserLocationBitmap(30))
             setPersonAnchor(0.5f, 0.5f)
         }
     }
