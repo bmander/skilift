@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,11 +30,40 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.ViewModel
 import com.bmander.skilift.ui.theme.SkiliftTheme
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+
+// UI state data class
+data class TripPlannerState(
+    val startLocation: String = "",
+    val endLocation: String = "",
+    val isRouteDisplayed: Boolean = false
+)
+
+class TripPlannerViewModel : ViewModel() {
+    private val _uiState = mutableStateOf(TripPlannerState())
+    val uiState: State<TripPlannerState> = _uiState
+
+    fun updateStartLocation(newStart: String) {
+        _uiState.value = _uiState.value.copy(startLocation = newStart)
+    }
+
+    fun updateEndLocation(newEnd: String) {
+        _uiState.value = _uiState.value.copy(endLocation = newEnd)
+    }
+
+    fun planTrip() {
+        // Insert your trip planning logic here.
+        _uiState.value = _uiState.value.copy(isRouteDisplayed = true)
+    }
+}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,36 +83,24 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TripPlannerApp() {
-    // Use delegated state for cleaner updates
-    var startLocation by remember { mutableStateOf("") }
-    var endLocation by remember { mutableStateOf("") }
-    var isRouteDisplayed by remember { mutableStateOf(false) }
+fun TripPlannerApp(viewModel: TripPlannerViewModel = viewModel()) {
+    val state = viewModel.uiState.value
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        // Use a Box so we can overlay the directions input on top of the map
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // The Map occupies the full screen
-            MapComponent(
-                modifier = Modifier.fillMaxSize()
-            )
+            MapComponent(modifier = Modifier.fillMaxSize())
 
-            // Only show the floating directions input if no route is currently displayed.
-            if (!isRouteDisplayed) {
+            if (!state.isRouteDisplayed) {
                 FloatingDirectionsInput(
-                    startLocation = startLocation,
-                    endLocation = endLocation,
-                    onStartLocationChange = { startLocation = it },
-                    onEndLocationChange = { endLocation = it },
-                    onPlanTrip = {
-                        // When planning the trip, you can add your logic here.
-                        // For now, we simulate that a route has been planned.
-                        isRouteDisplayed = true
-                    },
+                    startLocation = state.startLocation,
+                    endLocation = state.endLocation,
+                    onStartLocationChange = { viewModel.updateStartLocation(it) },
+                    onEndLocationChange = { viewModel.updateEndLocation(it) },
+                    onPlanTrip = { viewModel.planTrip() },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(16.dp)
@@ -136,7 +154,7 @@ fun FloatingDirectionsInput(
 }
 
 @Composable
-fun MapComponent(modifier: Modifier) {
+fun MapComponent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val mapView = remember {
         MapView(context).apply {
