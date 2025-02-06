@@ -179,6 +179,9 @@ fun FloatingDirectionsInput(
     onPlanTrip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val addressResolver =  remember{ AddressResolverService(context)  }
+
     // Use a Surface to create a floating card-like effect.
     Surface(
         modifier = modifier,
@@ -191,14 +194,16 @@ fun FloatingDirectionsInput(
                 label = "Start Location",
                 value = startLocation,
                 onValueChange = onStartLocationChange,
-                onClear = { onStartLocationChange("") }
+                onClear = { onStartLocationChange("") },
+                addressResolver = addressResolver
             )
             Spacer(modifier = Modifier.height(8.dp))
             LocationEntryField(
                 label = "End Location",
                 value = endLocation,
                 onValueChange = onEndLocationChange,
-                onClear = { onEndLocationChange("") }
+                onClear = { onEndLocationChange("") },
+                addressResolver = addressResolver
             )
             Spacer(modifier = Modifier.height(8.dp))
             Button(
@@ -217,11 +222,9 @@ fun LocationEntryField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    addressResolver: AddressResolverService
 ) {
-    val context = LocalContext.current
-
-    // If the value is already tokenized (starts with "[" and ends with "]") then show it as a token.
     val isToken = value.startsWith("[") && value.endsWith("]")
     if (isToken) {
         OutlinedTextField(
@@ -238,51 +241,39 @@ fun LocationEntryField(
             colors = TextFieldDefaults.outlinedTextFieldColors()
         )
     } else {
-        // Editable mode with reactive suggestions.
-        var query by remember { mutableStateOf(value) }
-        // Keep the local query in sync with the external value.
-        LaunchedEffect(value) {
-            query = value
-        }
-
-        val addressResolver = remember { AddressResolverService(context) }
-        // Maintain a state for suggestions.
         var suggestions by remember { mutableStateOf<List<AutocompletePrediction>>(emptyList()) }
 
-        // Launch a coroutine whenever 'query' changes to update the suggestions.
-        LaunchedEffect(query) {
-            suggestions = addressResolver.getSuggestions(query)
+        LaunchedEffect(value) {
+            suggestions = addressResolver.getSuggestions(value)
             Log.d("LocationEntryField", "Suggestions: $suggestions")
         }
 
+        // Local transient state to control the suggestions dropdown.
         var expanded by remember { mutableStateOf(false) }
         val focusManager = LocalFocusManager.current
 
         Box {
             OutlinedTextField(
-                value = query,
+                value = value,
                 onValueChange = { newValue ->
-                    query = newValue
                     onValueChange(newValue)
-                    // Show dropdown if there is a non-empty query and suggestions are available.
+                    // Update the dropdown state based on the new value and available suggestions.
                     expanded = newValue.isNotEmpty() && suggestions.isNotEmpty()
                 },
                 label = { Text(label) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onFocusChanged { /* Removed auto-tokenizing logic here */ },
+                    .onFocusChanged { /* Optionally trigger effects based on focus */ },
                 keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
                         focusManager.clearFocus()
-//                        suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
-//                            onValueChange("[$match]")
-//                            expanded = false
-//                        }
+                        // You might want to commit the value here if needed.
                     }
                 )
             )
-            DropdownMenu( // TODO suggestions should be reactive
+
+            DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.fillMaxWidth(),
@@ -292,6 +283,7 @@ fun LocationEntryField(
                     DropdownMenuItem(
                         text = { Text(suggestion.getFullText(null).toString()) },
                         onClick = {
+                            // Commit the selected suggestion as the new (final) value.
                             onValueChange("[$suggestion]")
                             expanded = false
                             focusManager.clearFocus()
@@ -302,6 +294,7 @@ fun LocationEntryField(
         }
     }
 }
+
 
 /**
  * MapComponent remains largely the same except that when a location is chosen via a map long-press,
