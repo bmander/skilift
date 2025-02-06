@@ -35,7 +35,8 @@ fun LocationPicker(
         Surface(
             modifier = Modifier
                 .padding(16.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .align(Alignment.Center),
             shape = MaterialTheme.shapes.medium,
             shadowElevation = 8.dp,
             color = MaterialTheme.colorScheme.background
