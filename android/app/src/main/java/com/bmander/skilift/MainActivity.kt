@@ -244,15 +244,8 @@ fun LocationEntryField(
         LaunchedEffect(value) {
             query = value
         }
-        // A dummy suggestion list for demonstration.
-        val dummyAddresses = listOf(
-            "1600 Amphitheatre Parkway, Mountain View, CA",
-            "1 Infinite Loop, Cupertino, CA",
-            "350 5th Ave, New York, NY",
-            "Seattle, WA, USA",
-            "San Francisco, CA, USA"
-        )
-        val suggestions = dummyAddresses.filter { it.contains(query, ignoreCase = true) && query.isNotEmpty() }
+        val addressResolver = remember { AddressResolverService() }
+        val suggestions = addressResolver.getSuggestions(query)
         var expanded by remember { mutableStateOf(false) }
         val focusManager = LocalFocusManager.current
 
@@ -270,7 +263,7 @@ fun LocationEntryField(
                     .onFocusChanged { focusState ->
                         if (!focusState.isFocused) {
                             // When focus is lost, if the query exactly matches one suggestion, tokenize it.
-                            suggestions.find { it.equals(query, ignoreCase = true) }?.let { match ->
+                            suggestions.find { it.address.equals(query, ignoreCase = true) }?.let { match ->
                                 onValueChange("[$match]")
                                 expanded = false
                             }
@@ -288,10 +281,10 @@ fun LocationEntryField(
             ) {
                 suggestions.forEach { suggestion ->
                     DropdownMenuItem(
-                        text = { Text(suggestion) },
+                        text = { Text(suggestion.address) },
                         onClick = {
                             onValueChange("[$suggestion]")
-                            query = suggestion
+                            query = suggestion.address
                             expanded = false
                             focusManager.clearFocus()
                         }
