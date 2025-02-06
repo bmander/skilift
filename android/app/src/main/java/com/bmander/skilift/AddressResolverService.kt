@@ -11,13 +11,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-data class AddressSuggestion(
-    val address: String,
-    val latitude: Double,
-    val longitude: Double,
-    val placeId: String? = null
-)
-
 class AddressResolverService(context: Context) {
 
     private val placesClient: PlacesClient
@@ -63,21 +56,14 @@ class AddressResolverService(context: Context) {
      * Returns an AddressSuggestion containing the address and the actual
      * latitude/longitude. Throws an exception if the fetch fails.
      */
-    suspend fun fetchPlaceDetails(placeId: String): AddressSuggestion =
+    suspend fun fetchPlaceDetails(placeId: String): Place =
         suspendCancellableCoroutine { cont ->
             val placeFields = listOf(Place.Field.ADDRESS, Place.Field.LAT_LNG)
             val request = FetchPlaceRequest.builder(placeId, placeFields).build()
 
             placesClient.fetchPlace(request)
                 .addOnSuccessListener { response ->
-                    val place = response.place
-                    val suggestion = AddressSuggestion(
-                        address = place.address ?: "",
-                        latitude = place.latLng?.latitude ?: 0.0,
-                        longitude = place.latLng?.longitude ?: 0.0,
-                        placeId = placeId
-                    )
-                    cont.resume(suggestion)
+                    cont.resume(response.place)
                 }
                 .addOnFailureListener { exception ->
                     cont.resumeWithException(exception)
