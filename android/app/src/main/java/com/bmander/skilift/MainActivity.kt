@@ -91,10 +91,10 @@ fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap 
     return bitmap
 }
 
-sealed class TerminusLocation {
-    data class CurrentLocation(val latitude: Double, val longitude: Double) : TerminusLocation()
-    data class Address(val address: String, val latitude: Double, val longitude: Double) : TerminusLocation()
-    data class MapPoint(val latitude: Double, val longitude: Double) : TerminusLocation()
+sealed class TerminusLocation(open val latitude: Double, open val longitude: Double) {
+    data class CurrentLocation(override val latitude: Double, override val longitude: Double) : TerminusLocation(latitude, longitude)
+    data class Address(val address: String, override val latitude: Double, override val longitude: Double) : TerminusLocation(latitude, longitude)
+    data class MapPoint(override val latitude: Double, override val longitude: Double) : TerminusLocation(latitude, longitude)
 }
 
 sealed class LocationEntryContents {
@@ -390,18 +390,8 @@ fun MapComponent(
         mapView.overlays.remove(startMarker)
         when (startLocation) {
             is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
-                val lat = when (startLocation) {
-                    is TerminusLocation.Address -> startLocation.latitude
-                    is TerminusLocation.MapPoint -> startLocation.latitude
-                    else -> 0.0
-                }
-                val lng = when (startLocation) {
-                    is TerminusLocation.Address -> startLocation.longitude
-                    is TerminusLocation.MapPoint -> startLocation.longitude
-                    else -> 0.0
-                }
                 startMarker.title = "Start"
-                startMarker.position = GeoPoint(lat, lng)
+                startMarker.position = GeoPoint(startLocation.latitude, startLocation.longitude)
                 mapView.overlays.add(startMarker)
             }
             else -> {}
@@ -412,18 +402,8 @@ fun MapComponent(
         mapView.overlays.remove(endMarker)
         when (endLocation) {
             is TerminusLocation.Address, is TerminusLocation.MapPoint -> {
-                val lat = when (endLocation) {
-                    is TerminusLocation.Address -> endLocation.latitude
-                    is TerminusLocation.MapPoint -> endLocation.latitude
-                    else -> 0.0
-                }
-                val lng = when (endLocation) {
-                    is TerminusLocation.Address -> endLocation.longitude
-                    is TerminusLocation.MapPoint -> endLocation.longitude
-                    else -> 0.0
-                }
                 endMarker.title = "End"
-                endMarker.position = GeoPoint(lat, lng)
+                endMarker.position = GeoPoint(endLocation.latitude, endLocation.longitude)
                 mapView.overlays.add(endMarker)
             }
             else -> {}
