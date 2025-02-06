@@ -1,53 +1,73 @@
 package com.bmander.skilift
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.ViewModel
-import com.bmander.skilift.ui.theme.SkiliftTheme
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import androidx.lifecycle.viewmodel.compose.viewModel
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.bmander.skilift.ui.theme.SkiliftTheme
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
-import org.osmdroid.views.overlay.MapEventsOverlay
-import androidx.compose.ui.window.Dialog
-import org.osmdroid.events.MapEventsReceiver
 
+/**
+ * Utility to create a simple “person” bitmap used by the MyLocation overlay.
+ */
 fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
@@ -74,7 +94,7 @@ data class TripPlannerState(
 
 class TripPlannerViewModel : ViewModel() {
     private val _uiState = mutableStateOf(TripPlannerState())
-    val uiState: State<TripPlannerState> = _uiState
+    val uiState = _uiState
 
     fun updateStartLocation(newStart: String) {
         _uiState.value = _uiState.value.copy(startLocation = newStart)
@@ -90,7 +110,6 @@ class TripPlannerViewModel : ViewModel() {
     }
 }
 
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -102,8 +121,10 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            ActivityCompat.requestPermissions(this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1001)
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1001
+            )
         }
 
         enableEdgeToEdge()
@@ -143,6 +164,9 @@ fun TripPlannerApp(viewModel: TripPlannerViewModel = viewModel()) {
     }
 }
 
+/**
+ * FloatingDirectionsInput now uses our custom [LocationEntryField] for each location.
+ */
 @Composable
 fun FloatingDirectionsInput(
     startLocation: String,
@@ -160,22 +184,20 @@ fun FloatingDirectionsInput(
         color = MaterialTheme.colorScheme.background
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            OutlinedTextField(
+            LocationEntryField(
+                label = "Start Location",
                 value = startLocation,
                 onValueChange = onStartLocationChange,
-                label = { Text("Start Location") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                onClear = { onStartLocationChange("") }
             )
-            OutlinedTextField(
+            Spacer(modifier = Modifier.height(8.dp))
+            LocationEntryField(
+                label = "End Location",
                 value = endLocation,
                 onValueChange = onEndLocationChange,
-                label = { Text("End Location") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                onClear = { onEndLocationChange("") }
             )
+            Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onPlanTrip,
                 modifier = Modifier.fillMaxWidth()
@@ -186,6 +208,104 @@ fun FloatingDirectionsInput(
     }
 }
 
+/**
+ * LocationEntryField renders a location “field” that can be either in an editable mode
+ * (with an auto‑complete dropdown of address suggestions) or in token mode (showing an
+ * immutable token with a clear “×” button). The convention is that a token value is wrapped in [ and ].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocationEntryField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    // If the value is already tokenized (starts with "[" and ends with "]") then show it as a token.
+    val isToken = value.startsWith("[") && value.endsWith("]")
+    if (isToken) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            label = { Text(label) },
+            readOnly = true,
+            trailingIcon = {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Filled.Close, contentDescription = "Clear")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = TextFieldDefaults.outlinedTextFieldColors()
+        )
+    } else {
+        // Editable mode with reactive suggestions.
+        var query by remember { mutableStateOf(value) }
+        // Update local query when the external value changes.
+        LaunchedEffect(value) {
+            query = value
+        }
+        // A dummy suggestion list for demonstration.
+        val dummyAddresses = listOf(
+            "1600 Amphitheatre Parkway, Mountain View, CA",
+            "1 Infinite Loop, Cupertino, CA",
+            "350 5th Ave, New York, NY",
+            "Seattle, WA, USA",
+            "San Francisco, CA, USA"
+        )
+        val suggestions = dummyAddresses.filter { it.contains(query, ignoreCase = true) && query.isNotEmpty() }
+        var expanded by remember { mutableStateOf(false) }
+        val focusManager = LocalFocusManager.current
+
+        Box {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { newValue ->
+                    query = newValue
+                    onValueChange(newValue)
+                    expanded = newValue.isNotEmpty() && suggestions.isNotEmpty()
+                },
+                label = { Text(label) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) {
+                            // When focus is lost, if the query exactly matches one suggestion, tokenize it.
+                            suggestions.find { it.equals(query, ignoreCase = true) }?.let { match ->
+                                onValueChange("[$match]")
+                                expanded = false
+                            }
+                        }
+                    },
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = { focusManager.clearFocus() }
+                )
+            )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                suggestions.forEach { suggestion ->
+                    DropdownMenuItem(
+                        text = { Text(suggestion) },
+                        onClick = {
+                            onValueChange("[$suggestion]")
+                            query = suggestion
+                            expanded = false
+                            focusManager.clearFocus()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * MapComponent remains largely the same except that when a location is chosen via a map long-press,
+ * we update the view model with the token "[selected from map]".
+ */
 @Composable
 fun MapComponent(
     modifier: Modifier = Modifier,
@@ -245,25 +365,21 @@ fun MapComponent(
                 latitude = longPressPoint!!.latitude,
                 longitude = longPressPoint!!.longitude,
                 onSetAsStart = {
-                    viewModel.updateStartLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
+                    viewModel.updateStartLocation("[selected from map]")
                     showContextMenu = false
                 },
                 onSetAsEnd = {
-                    viewModel.updateEndLocation("${longPressPoint!!.latitude},${longPressPoint!!.longitude}")
+                    viewModel.updateEndLocation("[selected from map]")
                     showContextMenu = false
                 },
-                onDismiss = {
-                    showContextMenu = false
-                }
+                onDismiss = { showContextMenu = false }
             )
         }
     }
 
     DisposableEffect(Unit) {
         mapView.onResume()
-        onDispose {
-            mapView.onPause()
-        }
+        onDispose { mapView.onPause() }
     }
 
     AndroidView(factory = { mapView }, modifier = modifier)
