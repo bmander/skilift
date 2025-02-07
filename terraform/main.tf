@@ -1,5 +1,5 @@
 provider "google" {
-  project = var.project
+  project = var.project != "" ? var.project : var.env_project
   region  = var.region
 }
 
@@ -23,6 +23,12 @@ resource "google_compute_instance" "default" {
 
 variable "project" {
   description = "The project ID to deploy to"
+  default     = ""
+}
+
+variable "env_project" {
+  description = "The project ID from the environment variable"
+  default     = "${env.GCP_PROJECT_ID}"
 }
 
 variable "region" {
