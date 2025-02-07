@@ -5,12 +5,13 @@ provider "google" {
 
 resource "google_compute_instance" "default" {
   name         = "vm-instance"
-  machine_type = "e2-medium"
+  machine_type = "e2-highmem-2"
   zone         = var.zone
 
   boot_disk {
     initialize_params {
-      image = "debian-12-bookworm-v20250113"
+      image = "projects/cos-cloud/global/images/cos-stable-117-18613-164-13"
+      size  = 100
     }
   }
 
