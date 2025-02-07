@@ -9,7 +9,8 @@
             "extensions": [
                 "ms-python.python",
                 "vscjava.vscode-java-pack",
-                "ms-azuretools.vscode-docker"
+                "ms-azuretools.vscode-docker",
+                "GitHub.copilot"
             ]
         }
     },
