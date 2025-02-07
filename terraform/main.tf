@@ -1,5 +1,5 @@
 provider "google" {
-  project = var.project != "" ? var.project : var.env_project
+  project = var.GCP_PROJECT_ID
   region  = var.region
 }
 
@@ -10,7 +10,7 @@ resource "google_compute_instance" "default" {
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-10"
+      image = "debian-12-bookworm-v20250113"
     }
   }
 
@@ -21,14 +21,8 @@ resource "google_compute_instance" "default" {
   }
 }
 
-variable "project" {
+variable "GCP_PROJECT_ID" {
   description = "The project ID to deploy to"
-  default     = ""
-}
-
-variable "env_project" {
-  description = "The project ID from the environment variable"
-  default     = "${env.GCP_PROJECT_ID}"
 }
 
 variable "region" {
