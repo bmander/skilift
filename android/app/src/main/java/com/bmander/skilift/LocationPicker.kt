@@ -27,43 +27,36 @@ fun LocationPicker(
     onSetAsEnd: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // The Box fills the screen and positions the card at the bottom center.
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.BottomCenter
+    Surface(
+        modifier = Modifier
+            .padding(16.dp)
+            .fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.background
     ) {
-        Surface(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth()
-                .align(Alignment.Center),
-            shape = MaterialTheme.shapes.medium,
-            shadowElevation = 8.dp,
-            color = MaterialTheme.colorScheme.background
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Location Selected", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Latitude: $latitude\nLongitude: $longitude")
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(onClick = onSetAsStart) {
-                        Text("Set as Start")
-                    }
-                    Button(onClick = onSetAsEnd) {
-                        Text("Set as End")
-                    }
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Location Selected", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Latitude: $latitude\nLongitude: $longitude")
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Button(onClick = onSetAsStart) {
+                    Text("Set as Start")
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("Cancel")
+                Button(onClick = onSetAsEnd) {
+                    Text("Set as End")
                 }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Cancel")
             }
         }
     }
