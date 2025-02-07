@@ -1,0 +1,17 @@
+{
+    "name": "Skilift Dev Container",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "vscjava.vscode-java-pack",
+                "ms-azuretools.vscode-docker"
+            ]
+        }
+    },
+    "postCreateCommand": "./gradlew build",
+    "remoteUser": "vscode"
+}
