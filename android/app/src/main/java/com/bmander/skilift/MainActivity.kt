@@ -76,21 +76,33 @@ import org.osmdroid.views.overlay.Marker
 /**
  * Utility to create a simple “person” bitmap used by the MyLocation overlay.
  */
-fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
+fun createLocationBitmap(size: Int, color: Int, borderFraction: Float = 0.25f): Bitmap {
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val centerX = size / 2f
     val centerY = size / 2f
     val radius = size / 2f * (1f - borderFraction)
     canvas.drawCircle(centerX, centerY, size / 2f, Paint().apply {
-        color = Color.WHITE
+        this.color = Color.WHITE
         style = Paint.Style.FILL
     })
     canvas.drawCircle(centerX, centerY, radius, Paint().apply {
-        color = Color.BLUE
+        this.color = color
         style = Paint.Style.FILL
     })
     return bitmap
+}
+
+fun currentUserLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
+    return createLocationBitmap(size, Color.BLUE, borderFraction)
+}
+
+fun originLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
+    return createLocationBitmap(size, Color.GREEN, borderFraction)
+}
+
+fun destinationLocationBitmap(size: Int, borderFraction: Float = 0.25f): Bitmap {
+    return createLocationBitmap(size, Color.RED, borderFraction)
 }
 
 sealed class TerminusLocation(open val latitude: Double, open val longitude: Double) {
@@ -385,8 +397,8 @@ fun MapComponent(
     val startLocation = state.startLocation
     val endLocation = state.endLocation
 
-    val startMarker = remember { Marker(mapView) }
-    val endMarker = remember { Marker(mapView) }
+    val startMarker = remember { Marker(mapView).apply { icon = BitmapDrawable(context.resources, originLocationBitmap(30)) } }
+    val endMarker = remember { Marker(mapView).apply { icon = BitmapDrawable(context.resources, destinationLocationBitmap(30)) } }
 
     LaunchedEffect(startLocation) {
         when (startLocation) {
