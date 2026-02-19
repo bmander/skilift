@@ -9,6 +9,7 @@ steps:
           gs://skilift-otp-data/kcm-gtfs.zip \
           gs://skilift-otp-data/st-gtfs.zip \
           gs://skilift-otp-data/seattle.osm.pbf \
+          gs://skilift-otp-data/seattle-dem.tif \
           gs://skilift-otp-data/build-config.json \
           gs://skilift-otp-data/otp-config.json \
           gs://skilift-otp-data/router-config.json \
@@ -27,7 +28,7 @@ steps:
           echo "$$CURRENT_HASH" > /workspace/current-hash.txt
         fi
 
-  # Step 2: Download source data and config from GCS
+  # Step 2: Download source data, config, and elevation cache from GCS
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
@@ -41,13 +42,20 @@ steps:
           gs://skilift-otp-data/kcm-gtfs.zip \
           gs://skilift-otp-data/st-gtfs.zip \
           gs://skilift-otp-data/seattle.osm.pbf \
+          gs://skilift-otp-data/seattle-dem.tif \
           gs://skilift-otp-data/build-config.json \
           gs://skilift-otp-data/otp-config.json \
           gs://skilift-otp-data/router-config.json \
           /otp-data/
+        mkdir -p /otp-cache
+        gsutil cp gs://skilift-otp-data/cached_elevations.obj /otp-cache/ 2>/dev/null \
+          && echo "Loaded elevation cache from GCS" \
+          || echo "No elevation cache found — will compute from scratch"
     volumes:
       - name: 'otp-data'
         path: '/otp-data'
+      - name: 'otp-cache'
+        path: '/otp-cache'
 
   # Step 3: Build the OTP graph (skipped if inputs unchanged)
   - name: 'opentripplanner/opentripplanner:2.7.0'
@@ -59,14 +67,16 @@ steps:
           echo "Skipping graph build — inputs unchanged"
           exit 0
         fi
-        exec /docker-entrypoint.sh --build --save
+        exec /docker-entrypoint.sh --build --save --cache /var/otp/cache
     env:
       - 'JAVA_OPTS=-Xmx12g'
     volumes:
       - name: 'otp-data'
         path: '/var/opentripplanner'
+      - name: 'otp-cache'
+        path: '/var/otp/cache'
 
-  # Step 4: Upload the built graph and updated hash to GCS
+  # Step 4: Upload the built graph, elevation cache, and updated hash to GCS
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
@@ -78,11 +88,16 @@ steps:
         fi
         gsutil cp /otp-data/graph.obj gs://skilift-otp-data/
         gsutil cp /workspace/current-hash.txt gs://skilift-otp-data/graph-input-hash.txt
+        if [ -f /otp-cache/cached_elevations.obj ]; then
+          echo "Uploading elevation cache..."
+          gsutil cp /otp-cache/cached_elevations.obj gs://skilift-otp-data/
+        fi
     volumes:
       - name: 'otp-data'
         path: '/otp-data'
+      - name: 'otp-cache'
+        path: '/otp-cache'
 
-timeout: '1800s'
+timeout: '3600s'
 options:
-  logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_32'

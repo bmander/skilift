@@ -141,7 +141,7 @@ When GTFS feeds are updated (typically every few months):
 
 Three Cloud Build jobs automate the data refresh, graph build, and server deployment on GCP:
 
-- **`cloudbuild-prepare-data.yaml`** — Downloads KCM + Sound Transit GTFS feeds, downloads and clips Washington OSM data to the Seattle bounding box, and uploads everything (including config files) to `gs://skilift-otp-data/`.
+- **`cloudbuild-prepare-data.yaml`** — Downloads KCM + Sound Transit GTFS feeds, downloads and clips Washington OSM data to the Seattle bounding box, downloads USGS DEM elevation data, and uploads everything (including config files) to `gs://skilift-otp-data/`.
 - **`cloudbuild-build-graph.yaml`** — Runs the OTP graph build inside Cloud Build (on a high-memory worker), then uploads the built `graph.obj` to GCS.
 - **`cloudbuild-start-server.yaml`** — SSHes into the `skilift-otp` VM, downloads the pre-built graph from GCS, and (re)starts the server container. No graph building happens on the VM.
 
@@ -189,7 +189,7 @@ gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-start-serv
 
 ### Verification
 
-1. After prepare-data: `gsutil ls -lh gs://skilift-otp-data/` should show `kcm-gtfs.zip`, `st-gtfs.zip`, `seattle.osm.pbf`, and the 3 config JSON files.
+1. After prepare-data: `gsutil ls -lh gs://skilift-otp-data/` should show `kcm-gtfs.zip`, `st-gtfs.zip`, `seattle.osm.pbf`, `seattle-dem.tif`, and the 3 config JSON files.
 2. After build-graph: `gsutil ls -lh gs://skilift-otp-data/graph.obj` should show the built graph file.
 3. After start-server: `gcloud compute ssh skilift-otp --zone=us-west1-b --command="sudo docker ps"` should show `otp-server` running.
 4. `curl http://35.197.42.97:8080/otp/routers/default/index/graphql` should return a GraphQL response.

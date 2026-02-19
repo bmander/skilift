@@ -96,6 +96,13 @@ steps:
           echo "/workspace/seattle.osm.pbf" >> "$$CHANGED"
         fi
 
+        # --- USGS DEM (elevation data) ---
+        if check_and_download "dem" \
+            "https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/13/TIFF/current/n48w123/USGS_13_n48w123.tif" \
+            "/workspace/seattle-dem.tif"; then
+          echo "/workspace/seattle-dem.tif" >> "$$CHANGED"
+        fi
+
         echo ""
         echo "=== Changed files ==="
         if [ -s "$$CHANGED" ]; then

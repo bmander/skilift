@@ -4,7 +4,12 @@
       "reluctance": 2.0,
       "boardCost": 600,
       "speed": 5.0,
-      "optimization": "SAFE_STREETS"
+      "optimization": "triangle",
+      "triangle": {
+        "safety": 0.4,
+        "flatness": 0.3,
+        "time": 0.3
+      }
     },
     "numItineraries": 5,
     "searchWindow": "PT2H"

@@ -15,5 +15,13 @@
     {
       "source": "file:///var/opentripplanner/seattle.osm.pbf"
     }
-  ]
+  ],
+  "dem": [
+    {
+      "source": "file:///var/opentripplanner/seattle-dem.tif"
+    }
+  ],
+  "multiThreadElevationCalculations": true,
+  "writeCachedElevations": true,
+  "readCachedElevations": true
 }
