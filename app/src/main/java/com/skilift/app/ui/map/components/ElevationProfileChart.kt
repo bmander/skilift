@@ -17,12 +17,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.skilift.app.domain.model.ElevationPoint
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
+import java.util.Locale
 
 private const val GAP_DP = 12f
+private const val METERS_PER_FOOT = 0.3048
+private const val METERS_PER_MILE = 1609.344
 
 @Composable
 fun ElevationProfileChart(
@@ -42,10 +50,10 @@ fun ElevationProfileChart(
     val greenFill = green.copy(alpha = 0.30f)
     val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
 
-    val minLabel = "%.0f m".format(minElev)
-    val maxLabel = "%.0f m".format(maxElev)
-    val distLabel = if (totalBikeDist >= 1000) "%.1f km".format(totalBikeDist / 1000.0)
-    else "%.0f m".format(totalBikeDist)
+    val useImperial = isImperialLocale()
+    val minLabel = formatElevation(minElev, useImperial)
+    val maxLabel = formatElevation(maxElev, useImperial)
+    val textMeasurer = rememberTextMeasurer()
 
     Card(
         modifier = modifier
@@ -73,12 +81,6 @@ fun ElevationProfileChart(
                 color = labelColor,
                 modifier = Modifier.align(Alignment.BottomStart)
             )
-            Text(
-                text = distLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = labelColor,
-                modifier = Modifier.align(Alignment.BottomEnd)
-            )
 
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val leftPad = 36.dp.toPx()
@@ -91,6 +93,11 @@ fun ElevationProfileChart(
                 val gapCount = (segments.size - 1).coerceAtLeast(0)
                 val totalGapPx = gapCount * GAP_DP.dp.toPx()
                 val drawableWidth = (chartWidth - totalGapPx).coerceAtLeast(1f)
+
+                val distLabelStyle = TextStyle(
+                    fontSize = 10.sp,
+                    color = labelColor
+                )
 
                 fun yFor(elev: Double): Float =
                     (chartHeight - ((elev - minElev) / elevRange * chartHeight)).toFloat()
@@ -122,6 +129,16 @@ fun ElevationProfileChart(
                     drawPath(fillPath, greenFill, style = Fill)
                     drawPath(linePath, green, style = Stroke(width = 2.dp.toPx()))
 
+                    val segLabel = formatDistance(segDist, useImperial)
+                    val measuredLabel = textMeasurer.measure(segLabel, distLabelStyle)
+                    drawText(
+                        textLayoutResult = measuredLabel,
+                        topLeft = androidx.compose.ui.geometry.Offset(
+                            x = xOffset + segWidthPx - measuredLabel.size.width,
+                            y = chartHeight + 2.dp.toPx()
+                        )
+                    )
+
                     xOffset += segWidthPx
                     if (segIndex < segments.size - 1) {
                         xOffset += GAP_DP.dp.toPx()
@@ -140,3 +157,23 @@ private fun buildBikeSegments(itinerary: Itinerary): List<List<ElevationPoint>> 
 
 fun Itinerary.hasBikingElevationData(): Boolean =
     legs.any { it.mode == TransportMode.BICYCLE && it.elevationProfile.isNotEmpty() }
+
+@Composable
+private fun isImperialLocale(): Boolean {
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    return locale.country in setOf("US", "MM", "LR")
+}
+
+private fun formatElevation(meters: Double, imperial: Boolean): String =
+    if (imperial) "%.0f ft".format(meters / METERS_PER_FOOT)
+    else "%.0f m".format(meters)
+
+private fun formatDistance(meters: Double, imperial: Boolean): String =
+    if (imperial) {
+        val miles = meters / METERS_PER_MILE
+        if (miles >= 1.0) "%.1f mi".format(miles)
+        else "%.0f ft".format(meters / METERS_PER_FOOT)
+    } else {
+        if (meters >= 1000) "%.1f km".format(meters / 1000.0)
+        else "%.0f m".format(meters)
+    }
