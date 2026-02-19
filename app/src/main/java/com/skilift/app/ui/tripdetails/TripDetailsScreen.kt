@@ -28,11 +28,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.Leg
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.theme.BikeGreen
@@ -48,8 +52,11 @@ import java.util.Locale
 @Composable
 fun TripDetailsScreen(
     itineraryIndex: Int,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: TripDetailsViewModel = hiltViewModel()
 ) {
+    val itinerary by viewModel.itinerary.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,21 +74,97 @@ fun TripDetailsScreen(
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp)
-        ) {
+        val itin = itinerary
+        if (itin == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Itinerary not available.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                item {
+                    SummaryHeader(itinerary = itin)
+                }
+                itemsIndexed(itin.legs) { index, leg ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        LegTimelineItem(
+                            leg = leg,
+                            isLast = index == itin.legs.lastIndex
+                        )
+                    }
+                }
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryHeader(itinerary: Itinerary) {
+    val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val totalMinutes = itinerary.durationSeconds / 60
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Itinerary ${itineraryIndex + 1}",
-                style = MaterialTheme.typography.headlineMedium
+                text = "$totalMinutes min total",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
             )
-            Spacer(modifier = Modifier.height(8.dp))
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             Text(
-                text = "Detailed leg-by-leg view will be displayed here when connected to OTP2.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                text = "${timeFormat.format(Date(itinerary.startTime))} \u2192 ${timeFormat.format(Date(itinerary.endTime))}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row {
+                itinerary.legs.forEachIndexed { index, leg ->
+                    Text(
+                        text = modeEmoji(leg.mode),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    if (index < itinerary.legs.lastIndex) {
+                        Text(
+                            text = " \u203A ",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "${itinerary.legs.size} legs",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
             )
         }
     }
@@ -188,4 +271,13 @@ private fun modeName(mode: TransportMode): String = when (mode) {
     TransportMode.TRAM -> "Tram"
     TransportMode.FERRY -> "Ferry"
     TransportMode.WALK -> "Walk"
+}
+
+private fun modeEmoji(mode: TransportMode): String = when (mode) {
+    TransportMode.BICYCLE -> "\uD83D\uDEB2"
+    TransportMode.BUS -> "\uD83D\uDE8C"
+    TransportMode.RAIL -> "\uD83D\uDE86"
+    TransportMode.TRAM -> "\uD83D\uDE8A"
+    TransportMode.FERRY -> "\u26F4"
+    TransportMode.WALK -> "\uD83D\uDEB6"
 }

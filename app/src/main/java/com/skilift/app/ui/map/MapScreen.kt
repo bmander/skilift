@@ -178,7 +178,10 @@ fun MapScreen(
                         itineraries = uiState.itineraries,
                         selectedIndex = uiState.selectedItineraryIndex,
                         onSelect = { viewModel.selectItinerary(it) },
-                        onDetails = { onItinerarySelected(it) }
+                        onDetails = {
+                            viewModel.prepareForDetails(it)
+                            onItinerarySelected(it)
+                        }
                     )
                 }
 

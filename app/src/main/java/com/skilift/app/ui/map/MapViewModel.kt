@@ -2,6 +2,7 @@ package com.skilift.app.ui.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.skilift.app.data.SelectedItineraryHolder
 import com.skilift.app.data.repository.PreferencesRepository
 import com.skilift.app.data.repository.TripRepository
 import com.skilift.app.domain.model.Itinerary
@@ -30,7 +31,8 @@ data class MapUiState(
 @HiltViewModel
 class MapViewModel @Inject constructor(
     private val tripRepository: TripRepository,
-    private val preferencesRepository: PreferencesRepository
+    private val preferencesRepository: PreferencesRepository,
+    private val selectedItineraryHolder: SelectedItineraryHolder
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
@@ -69,6 +71,10 @@ class MapViewModel @Inject constructor(
 
     fun selectItinerary(index: Int) {
         _uiState.update { it.copy(selectedItineraryIndex = index) }
+    }
+
+    fun prepareForDetails(index: Int) {
+        selectedItineraryHolder.itinerary = _uiState.value.itineraries.getOrNull(index)
     }
 
     fun clearPoints() {
