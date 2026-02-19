@@ -135,12 +135,12 @@ fun BikeTriangleWidget(
                     val pointPos = weightsToOffset(weights, tri)
                     drawCircle(
                         color = primaryColor,
-                        radius = 12f,
+                        radius = 24f,
                         center = pointPos
                     )
                     drawCircle(
                         color = Color.White,
-                        radius = 12f,
+                        radius = 24f,
                         center = pointPos,
                         style = Stroke(width = 3f)
                     )

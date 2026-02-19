@@ -370,13 +370,6 @@ fun MapScreen(
                         }
                     )
                 }
-
-                Text(
-                    text = if (uiState.isSelectingOrigin) "Tap to set origin" else "Tap to set destination",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
             }
         }
     }
