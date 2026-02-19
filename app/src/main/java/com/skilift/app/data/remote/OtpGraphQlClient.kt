@@ -51,32 +51,24 @@ class OtpGraphQlClient @Inject constructor(
         {
           planConnection(
             origin: {
-              coordinate: { latitude: $originLat, longitude: $originLon }
+              location: { coordinate: { latitude: $originLat, longitude: $originLon } }
             }
             destination: {
-              coordinate: { latitude: $destLat, longitude: $destLon }
+              location: { coordinate: { latitude: $destLat, longitude: $destLon } }
             }
             first: $numItineraries
             modes: {
-              directMode: BICYCLE
-              transitModes: [
-                { mode: BUS }
-                { mode: RAIL }
-                { mode: TRAM }
-                { mode: FERRY }
-              ]
-              accessMode: BICYCLE
-              egressMode: BICYCLE
-              transferMode: WALK
-            }
-            preferences: {
-              street: {
-                bicycle: {
-                  reluctance: $bicycleReluctance
-                  boardCost: $bicycleBoardCost
-                  speed: $bicycleSpeed
-                  optimization: SAFE_STREETS
-                }
+              direct: [BICYCLE]
+              transit: {
+                access: [BICYCLE]
+                egress: [BICYCLE]
+                transfer: [BICYCLE]
+                transit: [
+                  { mode: BUS }
+                  { mode: RAIL }
+                  { mode: TRAM }
+                  { mode: FERRY }
+                ]
               }
             }
           ) {
@@ -85,7 +77,7 @@ class OtpGraphQlClient @Inject constructor(
                 duration
                 startTime
                 endTime
-                walkDistance
+                numberOfTransfers
                 legs {
                   mode
                   startTime
@@ -96,13 +88,11 @@ class OtpGraphQlClient @Inject constructor(
                     name
                     lat
                     lon
-                    stop { code platformCode }
                   }
                   to {
                     name
                     lat
                     lon
-                    stop { code platformCode }
                   }
                   route {
                     shortName

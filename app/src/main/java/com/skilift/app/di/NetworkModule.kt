@@ -34,7 +34,7 @@ object NetworkModule {
 
     @Provides
     @Named("otpBaseUrl")
-    fun provideOtpBaseUrl(): String = "http://10.0.2.2:8080"
+    fun provideOtpBaseUrl(): String = "http://35.197.42.97:8080"
 
     @Provides
     @Singleton

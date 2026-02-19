@@ -33,23 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.mapbox.geojson.LineString
 import com.mapbox.geojson.Point
-import com.mapbox.maps.Style
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
 import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
+import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
+import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.PreferenceSlider
-import com.skilift.app.ui.theme.BikeGreen
-import com.skilift.app.ui.theme.FerryTeal
-import com.skilift.app.ui.theme.RailPurple
-import com.skilift.app.ui.theme.TransitBlue
-import com.skilift.app.ui.theme.WalkGray
-
-private const val STYLE_URL = Style.MAPBOX_STREETS
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,8 +97,8 @@ fun MapScreen(
             MapboxMap(
                 modifier = Modifier.fillMaxSize(),
                 mapViewportState = mapViewportState,
-                style = { Style(style = STYLE_URL) },
-                onMapClickListener = { point ->
+                style = { MapboxStandardStyle() },
+                onMapClickListener = OnMapClickListener { point ->
                     viewModel.onMapTap(
                         com.skilift.app.domain.model.LatLng(point.latitude(), point.longitude())
                     )
@@ -115,23 +108,25 @@ fun MapScreen(
                 // Origin marker
                 uiState.origin?.let { origin ->
                     CircleAnnotation(
-                        point = Point.fromLngLat(origin.longitude, origin.latitude),
-                        circleColorInt = android.graphics.Color.parseColor("#00796B"),
-                        circleRadius = 10.0,
-                        circleStrokeWidth = 2.0,
-                        circleStrokeColorInt = android.graphics.Color.WHITE
-                    )
+                        point = Point.fromLngLat(origin.longitude, origin.latitude)
+                    ) {
+                        circleRadius = 10.0
+                        circleColor = Color(0xFF00796B)
+                        circleStrokeWidth = 2.0
+                        circleStrokeColor = Color.White
+                    }
                 }
 
                 // Destination marker
                 uiState.destination?.let { dest ->
                     CircleAnnotation(
-                        point = Point.fromLngLat(dest.longitude, dest.latitude),
-                        circleColorInt = android.graphics.Color.parseColor("#D32F2F"),
-                        circleRadius = 10.0,
-                        circleStrokeWidth = 2.0,
-                        circleStrokeColorInt = android.graphics.Color.WHITE
-                    )
+                        point = Point.fromLngLat(dest.longitude, dest.latitude)
+                    ) {
+                        circleRadius = 10.0
+                        circleColor = Color(0xFFD32F2F)
+                        circleStrokeWidth = 2.0
+                        circleStrokeColor = Color.White
+                    }
                 }
 
                 // Route polylines
@@ -142,10 +137,11 @@ fun MapScreen(
                             PolylineAnnotation(
                                 points = leg.geometry.map {
                                     Point.fromLngLat(it.longitude, it.latitude)
-                                },
-                                lineColorInt = android.graphics.Color.parseColor(colorForMode(leg.mode)),
+                                }
+                            ) {
+                                lineColor = colorForMode(leg.mode)
                                 lineWidth = if (leg.mode == TransportMode.BICYCLE || leg.mode == TransportMode.WALK) 3.0 else 5.0
-                            )
+                            }
                         }
                     }
                 }
@@ -256,13 +252,13 @@ private fun ItineraryCards(
     }
 }
 
-private fun colorForMode(mode: TransportMode): String = when (mode) {
-    TransportMode.BICYCLE -> "#4CAF50"
-    TransportMode.BUS -> "#2196F3"
-    TransportMode.RAIL -> "#9C27B0"
-    TransportMode.TRAM -> "#9C27B0"
-    TransportMode.FERRY -> "#009688"
-    TransportMode.WALK -> "#9E9E9E"
+private fun colorForMode(mode: TransportMode): Color = when (mode) {
+    TransportMode.BICYCLE -> Color(0xFF4CAF50)
+    TransportMode.BUS -> Color(0xFF2196F3)
+    TransportMode.RAIL -> Color(0xFF9C27B0)
+    TransportMode.TRAM -> Color(0xFF9C27B0)
+    TransportMode.FERRY -> Color(0xFF009688)
+    TransportMode.WALK -> Color(0xFF9E9E9E)
 }
 
 private fun modeEmoji(mode: TransportMode): String = when (mode) {

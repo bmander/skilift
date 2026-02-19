@@ -58,7 +58,7 @@ class TripRepositoryImpl @Inject constructor(
         to = to.toDomain(),
         startTime = startTime ?: 0L,
         endTime = endTime ?: 0L,
-        durationSeconds = duration ?: 0,
+        durationSeconds = duration?.toInt() ?: 0,
         distanceMeters = distance ?: 0.0,
         routeShortName = route?.shortName,
         routeLongName = route?.longName,

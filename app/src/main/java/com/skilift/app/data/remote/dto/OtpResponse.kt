@@ -42,7 +42,7 @@ data class LegDto(
     val mode: String,
     val startTime: Long? = null,
     val endTime: Long? = null,
-    val duration: Int? = null,
+    val duration: Double? = null,
     val distance: Double? = null,
     val from: PlaceDto,
     val to: PlaceDto,

@@ -1,0 +1,22 @@
+services:
+  otp-build:
+    image: docker.io/opentripplanner/opentripplanner:2.7.0
+    command: --build --save
+    volumes:
+      - ./data:/var/opentripplanner
+    environment:
+      JAVA_OPTS: "-Xmx12g"
+
+  otp-server:
+    image: docker.io/opentripplanner/opentripplanner:2.7.0
+    command: --load --serve
+    volumes:
+      - ./data:/var/opentripplanner
+    ports:
+      - "8080:8080"
+    environment:
+      JAVA_OPTS: "-Xmx8g"
+    restart: always
+    depends_on:
+      otp-build:
+        condition: service_completed_successfully

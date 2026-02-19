@@ -36,8 +36,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 
     buildFeatures {
@@ -64,6 +66,7 @@ dependencies {
     implementation(libs.navigation.compose)
 
     // Mapbox
+    implementation(libs.mapbox.maps)
     implementation(libs.mapbox.maps.compose)
 
     // Ktor
