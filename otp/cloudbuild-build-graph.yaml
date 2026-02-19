@@ -1,0 +1,39 @@
+steps:
+  # Step 1: Download source data and config from GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gsutil -m cp \
+          gs://skilift-otp-data/kcm-gtfs.zip \
+          gs://skilift-otp-data/st-gtfs.zip \
+          gs://skilift-otp-data/seattle.osm.pbf \
+          gs://skilift-otp-data/build-config.json \
+          gs://skilift-otp-data/otp-config.json \
+          gs://skilift-otp-data/router-config.json \
+          /otp-data/
+    volumes:
+      - name: 'otp-data'
+        path: '/otp-data'
+
+  # Step 2: Build the OTP graph
+  - name: 'opentripplanner/opentripplanner:2.7.0'
+    args: ['--build', '--save']
+    env:
+      - 'JAVA_OPTS=-Xmx12g'
+    volumes:
+      - name: 'otp-data'
+        path: '/var/opentripplanner'
+
+  # Step 3: Upload the built graph to GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['cp', '/otp-data/graph.obj', 'gs://skilift-otp-data/']
+    volumes:
+      - name: 'otp-data'
+        path: '/otp-data'
+
+timeout: '1800s'
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_32'
