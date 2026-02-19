@@ -62,6 +62,8 @@ import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.BikeTriangleWidget
+import com.skilift.app.ui.map.components.ElevationProfileChart
+import com.skilift.app.ui.map.components.hasBikingElevationData
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -376,6 +378,11 @@ fun MapScreen(
                 }
 
                 if (uiState.itineraries.isNotEmpty()) {
+                    val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
+                    if (selectedItinerary.hasBikingElevationData()) {
+                        ElevationProfileChart(itinerary = selectedItinerary)
+                    }
+
                     ItineraryCards(
                         itineraries = uiState.itineraries,
                         selectedIndex = uiState.selectedItineraryIndex,

@@ -3,6 +3,7 @@ package com.skilift.app.data.repository
 import com.skilift.app.data.remote.OtpGraphQlClient
 import com.skilift.app.data.remote.dto.LegDto
 import com.skilift.app.data.remote.dto.PlaceDto
+import com.skilift.app.domain.model.ElevationPoint
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.Leg
@@ -69,8 +70,25 @@ class TripRepositoryImpl @Inject constructor(
         routeShortName = route?.shortName,
         routeLongName = route?.longName,
         headsign = headsign,
-        geometry = legGeometry?.points?.let { PolylineDecoder.decode(it) } ?: emptyList()
+        geometry = legGeometry?.points?.let { PolylineDecoder.decode(it) } ?: emptyList(),
+        elevationProfile = buildElevationProfile(steps)
     )
+
+    private fun buildElevationProfile(steps: List<com.skilift.app.data.remote.dto.StepDto>?): List<ElevationPoint> {
+        if (steps.isNullOrEmpty()) return emptyList()
+        val result = mutableListOf<ElevationPoint>()
+        var cumulativeDistance = 0.0
+        for (step in steps) {
+            step.elevationProfile?.forEach { component ->
+                result.add(ElevationPoint(
+                    distanceMeters = cumulativeDistance + component.distance,
+                    elevationMeters = component.elevation
+                ))
+            }
+            cumulativeDistance += step.distance ?: 0.0
+        }
+        return result
+    }
 
     private fun PlaceDto.toDomain(): Place = Place(
         name = name,

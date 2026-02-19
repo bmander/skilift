@@ -11,5 +11,6 @@ data class Leg(
     val routeShortName: String?,
     val routeLongName: String?,
     val headsign: String?,
-    val geometry: List<LatLng>
+    val geometry: List<LatLng>,
+    val elevationProfile: List<ElevationPoint>
 )

@@ -48,7 +48,8 @@ data class LegDto(
     val to: PlaceDto,
     val route: RouteDto? = null,
     val headsign: String? = null,
-    val legGeometry: LegGeometryDto? = null
+    val legGeometry: LegGeometryDto? = null,
+    val steps: List<StepDto>? = null
 )
 
 @Serializable
@@ -74,4 +75,16 @@ data class RouteDto(
 @Serializable
 data class LegGeometryDto(
     val points: String? = null
+)
+
+@Serializable
+data class StepDto(
+    val distance: Double? = null,
+    val elevationProfile: List<ElevationProfileComponentDto>? = null
+)
+
+@Serializable
+data class ElevationProfileComponentDto(
+    val distance: Double,
+    val elevation: Double
 )

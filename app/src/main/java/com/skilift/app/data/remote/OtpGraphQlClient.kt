@@ -124,6 +124,10 @@ class OtpGraphQlClient @Inject constructor(
                   }
                   headsign
                   legGeometry { points }
+                  steps {
+                    distance
+                    elevationProfile { distance elevation }
+                  }
                 }
               }
             }
