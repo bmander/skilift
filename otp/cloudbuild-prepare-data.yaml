@@ -1,42 +1,135 @@
 steps:
-  # Step 1: Download GTFS feeds and OSM data, then clip to Seattle bbox
+  # Step 1: Fetch stored metadata from GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gsutil cp gs://skilift-otp-data/source-metadata.json /workspace/source-metadata.json 2>/dev/null \
+          || echo '{}' > /workspace/source-metadata.json
+        echo "Current metadata:"
+        cat /workspace/source-metadata.json
+
+  # Step 2: Conditional downloads using ETag/Last-Modified headers
   - name: 'ubuntu'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        apt-get update && apt-get install -y curl osmium-tool
+        apt-get update && apt-get install -y curl jq osmium-tool
 
-        echo "Downloading KCM GTFS..."
-        curl -L -o /workspace/kcm-gtfs.zip \
-          "http://metro.kingcounty.gov/gtfs/google_transit.zip"
+        METADATA=/workspace/source-metadata.json
+        CHANGED=/workspace/changed-files.txt
+        : > "$$CHANGED"
 
-        echo "Downloading Sound Transit GTFS..."
-        curl -L -o /workspace/st-gtfs.zip \
-          "https://www.soundtransit.org/GTFS-KCM/google_transit.zip"
+        check_and_download() {
+          local key="$$1"
+          local url="$$2"
+          local output="$$3"
 
-        echo "Downloading Washington state OSM..."
-        curl -L -o /workspace/wa.osm.pbf \
-          "https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf"
+          echo "=== Checking $$key ==="
 
-        echo "Clipping to Seattle bounding box..."
-        osmium extract \
-          --bbox=-122.5,47.3,-122.1,47.8 \
-          -o /workspace/seattle.osm.pbf \
-          /workspace/wa.osm.pbf
+          stored_etag=$$(jq -r --arg k "$$key" '.[$$k].etag // ""' "$$METADATA")
+          stored_lm=$$(jq -r --arg k "$$key" '.[$$k].last_modified // ""' "$$METADATA")
 
-        rm /workspace/wa.osm.pbf
+          headers=$$(curl -sI -L "$$url")
+          server_etag=$$(echo "$$headers" | grep -i '^etag:' | tail -1 | sed 's/^[^:]*: *//;s/\r//')
+          server_lm=$$(echo "$$headers" | grep -i '^last-modified:' | tail -1 | sed 's/^[^:]*: *//;s/\r//')
 
-  # Step 2: Upload data and config files to GCS
+          echo "  Stored  ETag: '$$stored_etag'  Last-Modified: '$$stored_lm'"
+          echo "  Server  ETag: '$$server_etag'  Last-Modified: '$$server_lm'"
+
+          skip=false
+          if [ -n "$$server_etag" ] && [ "$$server_etag" = "$$stored_etag" ]; then
+            echo "  ETag matches — skipping download"
+            skip=true
+          elif [ -n "$$server_etag" ] && [ "$$server_etag" != "$$stored_etag" ]; then
+            echo "  ETag changed — will download"
+          elif [ -z "$$server_etag" ] && [ -n "$$server_lm" ] && [ "$$server_lm" = "$$stored_lm" ]; then
+            echo "  Last-Modified matches — skipping download"
+            skip=true
+          else
+            echo "  Cannot confirm unchanged — will download"
+          fi
+
+          if [ "$$skip" = true ]; then
+            return 1
+          fi
+
+          echo "  Downloading $$url ..."
+          curl -L -o "$$output" "$$url"
+
+          # Update metadata with new headers
+          jq --arg k "$$key" \
+             --arg e "$$server_etag" \
+             --arg l "$$server_lm" \
+             '.[$$k] = {etag: $$e, last_modified: $$l}' \
+             "$$METADATA" > "$${METADATA}.tmp" && mv "$${METADATA}.tmp" "$$METADATA"
+
+          return 0
+        }
+
+        # --- KCM GTFS ---
+        if check_and_download "kcm-gtfs" \
+            "http://metro.kingcounty.gov/gtfs/google_transit.zip" \
+            "/workspace/kcm-gtfs.zip"; then
+          echo "/workspace/kcm-gtfs.zip" >> "$$CHANGED"
+        fi
+
+        # --- Sound Transit GTFS ---
+        if check_and_download "st-gtfs" \
+            "https://www.soundtransit.org/GTFS-rail/40_gtfs.zip" \
+            "/workspace/st-gtfs.zip"; then
+          echo "/workspace/st-gtfs.zip" >> "$$CHANGED"
+        fi
+
+        # --- OSM (needs clipping) ---
+        if check_and_download "osm" \
+            "https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf" \
+            "/workspace/wa.osm.pbf"; then
+          echo "  Clipping to Seattle bounding box..."
+          osmium extract \
+            --bbox=-122.5,47.3,-122.1,47.8 \
+            -o /workspace/seattle.osm.pbf \
+            /workspace/wa.osm.pbf
+          rm /workspace/wa.osm.pbf
+          echo "/workspace/seattle.osm.pbf" >> "$$CHANGED"
+        fi
+
+        echo ""
+        echo "=== Changed files ==="
+        if [ -s "$$CHANGED" ]; then
+          cat "$$CHANGED"
+        else
+          echo "(none)"
+        fi
+
+        echo ""
+        echo "Updated metadata:"
+        cat "$$METADATA"
+
+  # Step 3: Upload only changed data files to GCS
   - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
     args:
-      - '-m'
-      - 'cp'
-      - '/workspace/kcm-gtfs.zip'
-      - '/workspace/st-gtfs.zip'
-      - '/workspace/seattle.osm.pbf'
-      - 'gs://skilift-otp-data/'
+      - '-c'
+      - |
+        CHANGED=/workspace/changed-files.txt
 
+        if [ ! -s "$$CHANGED" ]; then
+          echo "No data files changed — skipping data upload"
+        else
+          echo "Uploading changed data files..."
+          while IFS= read -r f; do
+            echo "  Uploading $$f"
+            gsutil cp "$$f" gs://skilift-otp-data/
+          done < "$$CHANGED"
+        fi
+
+        echo "Uploading source-metadata.json..."
+        gsutil cp /workspace/source-metadata.json gs://skilift-otp-data/
+
+  # Step 4: Upload config files (always — keeps them in sync with git)
   - name: 'gcr.io/cloud-builders/gsutil'
     args:
       - '-m'
