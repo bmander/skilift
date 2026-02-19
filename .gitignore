@@ -19,6 +19,7 @@ local.properties
 
 # Kotlin
 *.class
+.kotlin/
 
 # OS
 .DS_Store
