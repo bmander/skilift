@@ -19,6 +19,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        resValue("string", "mapbox_access_token",
+            providers.gradleProperty("MAPBOX_ACCESS_TOKEN").getOrElse(""))
     }
 
     buildTypes {
