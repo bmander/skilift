@@ -50,10 +50,14 @@ class MapViewModel @Inject constructor(
     }
 
     fun onMapTap(latLng: LatLng) {
+        val warning = if (!isInCoverageArea(latLng))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+
         if (_uiState.value.isSelectingOrigin) {
-            _uiState.update { it.copy(origin = latLng, isSelectingOrigin = false, error = null) }
+            _uiState.update { it.copy(origin = latLng, isSelectingOrigin = false, error = warning) }
         } else {
-            _uiState.update { it.copy(destination = latLng, isSelectingOrigin = true, error = null) }
+            _uiState.update { it.copy(destination = latLng, isSelectingOrigin = true, error = warning) }
             searchTrips()
         }
     }
@@ -126,6 +130,17 @@ class MapViewModel @Inject constructor(
     }
 
     companion object {
+        // Coverage area: Seattle bounding box from OTP graph build
+        // OSM data clipped to --bbox=-122.5,47.3,-122.1,47.8
+        const val COVERAGE_NORTH = 47.8
+        const val COVERAGE_SOUTH = 47.3
+        const val COVERAGE_EAST = -122.1
+        const val COVERAGE_WEST = -122.5
+
+        fun isInCoverageArea(latLng: LatLng): Boolean =
+            latLng.latitude in COVERAGE_SOUTH..COVERAGE_NORTH &&
+                latLng.longitude in COVERAGE_WEST..COVERAGE_EAST
+
         fun mapSliderToOtpPreferences(balance: Float): Pair<Double, Int> {
             val reluctance = 5.0 - (4.5 * balance)
             val boardCost = (1200 - (1140 * balance)).toInt()

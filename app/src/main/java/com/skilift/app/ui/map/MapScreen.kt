@@ -37,6 +37,7 @@ import com.mapbox.geojson.Point
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
 import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
+import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
 import com.mapbox.maps.plugin.gestures.OnMapClickListener
@@ -105,6 +106,45 @@ fun MapScreen(
                     true
                 }
             ) {
+                // Coverage area overlay: dim the area outside the data boundary
+                PolygonAnnotation(
+                    points = listOf(
+                        // Outer ring (large area beyond the map view)
+                        listOf(
+                            Point.fromLngLat(-130.0, 40.0),
+                            Point.fromLngLat(-115.0, 40.0),
+                            Point.fromLngLat(-115.0, 55.0),
+                            Point.fromLngLat(-130.0, 55.0),
+                            Point.fromLngLat(-130.0, 40.0),
+                        ),
+                        // Inner ring (coverage area hole)
+                        listOf(
+                            Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_SOUTH),
+                            Point.fromLngLat(MapViewModel.COVERAGE_EAST, MapViewModel.COVERAGE_SOUTH),
+                            Point.fromLngLat(MapViewModel.COVERAGE_EAST, MapViewModel.COVERAGE_NORTH),
+                            Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_NORTH),
+                            Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_SOUTH),
+                        )
+                    )
+                ) {
+                    fillColor = Color(0x30000000)
+                    fillOutlineColor = Color(0x60000000)
+                }
+
+                // Coverage area border
+                PolylineAnnotation(
+                    points = listOf(
+                        Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_SOUTH),
+                        Point.fromLngLat(MapViewModel.COVERAGE_EAST, MapViewModel.COVERAGE_SOUTH),
+                        Point.fromLngLat(MapViewModel.COVERAGE_EAST, MapViewModel.COVERAGE_NORTH),
+                        Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_NORTH),
+                        Point.fromLngLat(MapViewModel.COVERAGE_WEST, MapViewModel.COVERAGE_SOUTH),
+                    )
+                ) {
+                    lineColor = Color(0x80000000)
+                    lineWidth = 1.5
+                }
+
                 // Origin marker
                 uiState.origin?.let { origin ->
                     CircleAnnotation(
