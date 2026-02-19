@@ -139,10 +139,11 @@ When GTFS feeds are updated (typically every few months):
 
 ## Updating Data (Cloud Build)
 
-Two Cloud Build jobs automate the data refresh and graph rebuild pipeline on GCP:
+Three Cloud Build jobs automate the data refresh, graph build, and server deployment on GCP:
 
 - **`cloudbuild-prepare-data.yaml`** — Downloads KCM + Sound Transit GTFS feeds, downloads and clips Washington OSM data to the Seattle bounding box, and uploads everything (including config files) to `gs://skilift-otp-data/`.
-- **`cloudbuild-rebuild-otp.yaml`** — SSHes into the `skilift-otp` VM, pulls data from the GCS bucket, builds the OTP graph, and restarts the server container.
+- **`cloudbuild-build-graph.yaml`** — Runs the OTP graph build inside Cloud Build (on a high-memory worker), then uploads the built `graph.obj` to GCS.
+- **`cloudbuild-start-server.yaml`** — SSHes into the `skilift-otp` VM, downloads the pre-built graph from GCS, and (re)starts the server container. No graph building happens on the VM.
 
 ### One-Time Setup
 
@@ -174,19 +175,24 @@ gcloud projects add-iam-policy-binding skilift-450102 \
 # Refresh data only (run from repo root so config files are included)
 gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-prepare-data.yaml .
 
-# Rebuild OTP server only (uses data already in bucket)
-gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-rebuild-otp.yaml --no-source
+# Build graph only (uses data already in bucket, runs on high-memory Cloud Build worker)
+gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-build-graph.yaml --no-source
 
-# Full pipeline: refresh data then rebuild
+# (Re)start server only (loads pre-built graph from GCS — fast, no graph build)
+gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-start-server.yaml --no-source
+
+# Full pipeline: refresh data, build graph, then start server
 gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-prepare-data.yaml . && \
-gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-rebuild-otp.yaml --no-source
+gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-build-graph.yaml --no-source && \
+gcloud builds submit --project=skilift-450102 --config=otp/cloudbuild-start-server.yaml --no-source
 ```
 
 ### Verification
 
 1. After prepare-data: `gsutil ls -lh gs://skilift-otp-data/` should show `kcm-gtfs.zip`, `st-gtfs.zip`, `seattle.osm.pbf`, and the 3 config JSON files.
-2. After rebuild-otp: `gcloud compute ssh skilift-otp --zone=us-west1-b --command="sudo docker ps"` should show `otp-server` running.
-3. `curl http://35.197.42.97:8080/otp/routers/default/index/graphql` should return a GraphQL response.
+2. After build-graph: `gsutil ls -lh gs://skilift-otp-data/graph.obj` should show the built graph file.
+3. After start-server: `gcloud compute ssh skilift-otp --zone=us-west1-b --command="sudo docker ps"` should show `otp-server` running.
+4. `curl http://35.197.42.97:8080/otp/routers/default/index/graphql` should return a GraphQL response.
 
 ## GCP Deployment
 

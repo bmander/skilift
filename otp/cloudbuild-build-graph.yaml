@@ -1,0 +1,88 @@
+steps:
+  # Step 1: Check if input files have changed since last graph build
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        CURRENT_HASH=$$(gsutil stat \
+          gs://skilift-otp-data/kcm-gtfs.zip \
+          gs://skilift-otp-data/st-gtfs.zip \
+          gs://skilift-otp-data/seattle.osm.pbf \
+          gs://skilift-otp-data/build-config.json \
+          gs://skilift-otp-data/otp-config.json \
+          gs://skilift-otp-data/router-config.json \
+          | grep 'Hash (crc32c)' | awk '{print $$NF}' | tr -d '\n')
+
+        STORED_HASH=$$(gsutil cat gs://skilift-otp-data/graph-input-hash.txt 2>/dev/null || echo '')
+
+        echo "Current input hash: $$CURRENT_HASH"
+        echo "Stored input hash:  $$STORED_HASH"
+
+        if [ "$$CURRENT_HASH" = "$$STORED_HASH" ]; then
+          echo "Input files unchanged — skipping graph build"
+          touch /workspace/skip-build
+        else
+          echo "Input files changed — graph build needed"
+          echo "$$CURRENT_HASH" > /workspace/current-hash.txt
+        fi
+
+  # Step 2: Download source data and config from GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/skip-build ]; then
+          echo "Skipping download — inputs unchanged"
+          exit 0
+        fi
+        gsutil -m cp \
+          gs://skilift-otp-data/kcm-gtfs.zip \
+          gs://skilift-otp-data/st-gtfs.zip \
+          gs://skilift-otp-data/seattle.osm.pbf \
+          gs://skilift-otp-data/build-config.json \
+          gs://skilift-otp-data/otp-config.json \
+          gs://skilift-otp-data/router-config.json \
+          /otp-data/
+    volumes:
+      - name: 'otp-data'
+        path: '/otp-data'
+
+  # Step 3: Build the OTP graph (skipped if inputs unchanged)
+  - name: 'opentripplanner/opentripplanner:2.7.0'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/skip-build ]; then
+          echo "Skipping graph build — inputs unchanged"
+          exit 0
+        fi
+        exec /docker-entrypoint.sh --build --save
+    env:
+      - 'JAVA_OPTS=-Xmx12g'
+    volumes:
+      - name: 'otp-data'
+        path: '/var/opentripplanner'
+
+  # Step 4: Upload the built graph and updated hash to GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/skip-build ]; then
+          echo "Skipping upload — inputs unchanged"
+          exit 0
+        fi
+        gsutil cp /otp-data/graph.obj gs://skilift-otp-data/
+        gsutil cp /workspace/current-hash.txt gs://skilift-otp-data/graph-input-hash.txt
+    volumes:
+      - name: 'otp-data'
+        path: '/otp-data'
+
+timeout: '1800s'
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_32'

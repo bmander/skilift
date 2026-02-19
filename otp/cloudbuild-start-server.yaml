@@ -1,5 +1,5 @@
 steps:
-  # Step 1: Copy data from GCS to the VM
+  # Step 1: Download the pre-built graph and config from GCS to the VM
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -7,7 +7,7 @@ steps:
       - |
         gcloud compute ssh skilift-otp \
           --zone=us-west1-b \
-          --command='mkdir -p $$HOME/skilift/otp/data && gsutil -m cp gs://skilift-otp-data/* $$HOME/skilift/otp/data/'
+          --command='mkdir -p $$HOME/skilift/otp/data && gsutil -m cp gs://skilift-otp-data/graph.obj gs://skilift-otp-data/otp-config.json gs://skilift-otp-data/router-config.json $$HOME/skilift/otp/data/'
 
   # Step 2: Pull the OTP Docker image
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -19,17 +19,7 @@ steps:
           --zone=us-west1-b \
           --command='sudo docker pull opentripplanner/opentripplanner:2.7.0'
 
-  # Step 3: Build the OTP graph
-  - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        gcloud compute ssh skilift-otp \
-          --zone=us-west1-b \
-          --command='sudo docker run --rm -v $$HOME/skilift/otp/data:/var/opentripplanner -e JAVA_OPTS="-Xmx12g" opentripplanner/opentripplanner:2.7.0 --build --save'
-
-  # Step 4: Stop and remove the old OTP server container
+  # Step 3: Stop and remove the old OTP server container
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -39,7 +29,7 @@ steps:
           --zone=us-west1-b \
           --command='sudo docker stop otp-server 2>/dev/null; sudo docker rm otp-server 2>/dev/null; true'
 
-  # Step 5: Start the new OTP server
+  # Step 4: Start the new OTP server
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -49,6 +39,6 @@ steps:
           --zone=us-west1-b \
           --command='sudo docker run -d --name otp-server --restart=always -v $$HOME/skilift/otp/data:/var/opentripplanner -p 8080:8080 -e JAVA_OPTS="-Xmx8g" opentripplanner/opentripplanner:2.7.0 --load --serve'
 
-timeout: '1800s'
+timeout: '600s'
 options:
   logging: CLOUD_LOGGING_ONLY
