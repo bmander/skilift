@@ -2,6 +2,7 @@ package com.skilift.app.ui.map
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -11,39 +12,39 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -185,41 +186,7 @@ fun MapScreen(
                 }
             }
         },
-        topBar = {
-            TopAppBar(
-                title = { Text("Skilift") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                actions = {
-                    if (uiState.origin != null || uiState.destination != null) {
-                        IconButton(onClick = { viewModel.clearPoints() }) {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = "Clear",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                    }
-                    IconButton(onClick = {
-                        scope.launch {
-                            if (bottomSheetState.currentValue == SheetValue.Expanded) {
-                                bottomSheetState.hide()
-                            } else {
-                                bottomSheetState.expand()
-                            }
-                        }
-                    }) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "Tuning",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
-            )
-        }
+        sheetDragHandle = null
     ) { paddingValues ->
         // Track the sheet's hidden-state offset as a reference point.
         // This avoids coordinate-space assumptions: the visible sheet height
@@ -240,9 +207,28 @@ fun MapScreen(
         val overlayBottomPadding = max(visibleSheetDp, navigationBarPadding)
 
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val fabHeightPx = remember { mutableIntStateOf(0) }
+            val fabBottomPadding = statusBarPadding + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
             MapboxMap(
                 modifier = Modifier.fillMaxSize(),
                 mapViewportState = mapViewportState,
+                compass = {
+                    Compass(
+                        contentPadding = PaddingValues(
+                            top = fabBottomPadding,
+                            end = 16.dp
+                        )
+                    )
+                },
+                scaleBar = {
+                    ScaleBar(
+                        contentPadding = PaddingValues(
+                            top = statusBarPadding + 8.dp,
+                            start = 8.dp
+                        )
+                    )
+                },
                 style = { MapboxStandardStyle() },
                 onMapClickListener = OnMapClickListener { point ->
                     viewModel.onMapTap(
@@ -330,6 +316,37 @@ fun MapScreen(
                         }
                     }
                 }
+            }
+
+            // Floating settings button
+            val isDrawerOpen = bottomSheetState.currentValue == SheetValue.Expanded
+            FloatingActionButton(
+                onClick = {
+                    scope.launch {
+                        if (isDrawerOpen) {
+                            bottomSheetState.hide()
+                        } else {
+                            bottomSheetState.expand()
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = statusBarPadding + 8.dp,
+                        end = 16.dp
+                    )
+                    .onGloballyPositioned { fabHeightPx.intValue = it.size.height },
+                containerColor = if (isDrawerOpen)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.surface,
+                contentColor = if (isDrawerOpen)
+                    MaterialTheme.colorScheme.onPrimary
+                else
+                    MaterialTheme.colorScheme.onSurface
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = "Tuning")
             }
 
             Column(
