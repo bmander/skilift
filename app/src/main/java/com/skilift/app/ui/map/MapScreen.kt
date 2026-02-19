@@ -148,7 +148,7 @@ fun MapScreen(
                     weights = uiState.triangleWeights,
                     onWeightsChanged = { viewModel.onTriangleWeightsChanged(it) },
                     onWeightsChangeFinished = { viewModel.onTriangleWeightsChangeFinished() },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(0.6f).align(Alignment.CenterHorizontally)
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
