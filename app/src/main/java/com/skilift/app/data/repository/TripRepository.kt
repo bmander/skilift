@@ -9,6 +9,9 @@ interface TripRepository {
         destination: LatLng,
         bicycleReluctance: Double,
         bicycleBoardCost: Int,
-        bicycleSpeed: Double
+        bicycleSpeed: Double,
+        triangleTimeFactor: Double = 0.3,
+        triangleSafetyFactor: Double = 0.4,
+        triangleFlatnessFactor: Double = 0.3
     ): Result<List<Itinerary>>
 }

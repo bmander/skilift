@@ -3,8 +3,8 @@ package com.skilift.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skilift.app.data.repository.PreferencesRepository
-import com.skilift.app.domain.model.CyclingOptimization
 import com.skilift.app.domain.model.TripPreferences
+import com.skilift.app.ui.map.components.TriangleWeights
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,10 +36,24 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun updateCyclingOptimization(value: CyclingOptimization) {
-        _preferences.update { it.copy(cyclingOptimization = value) }
+    fun updateTriangleWeights(weights: TriangleWeights) {
+        _preferences.update {
+            it.copy(
+                triangleTimeFactor = weights.time,
+                triangleSafetyFactor = weights.safety,
+                triangleFlatnessFactor = weights.flatness
+            )
+        }
+    }
+
+    fun saveTriangleWeights() {
+        val prefs = _preferences.value
         viewModelScope.launch {
-            preferencesRepository.updateCyclingOptimization(value)
+            preferencesRepository.updateTriangleFactors(
+                time = prefs.triangleTimeFactor,
+                safety = prefs.triangleSafetyFactor,
+                flatness = prefs.triangleFlatnessFactor
+            )
         }
     }
 

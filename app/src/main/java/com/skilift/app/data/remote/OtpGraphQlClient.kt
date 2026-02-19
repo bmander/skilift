@@ -23,13 +23,18 @@ class OtpGraphQlClient @Inject constructor(
         bicycleReluctance: Double = 2.0,
         bicycleBoardCost: Int = 600,
         bicycleSpeed: Double = 5.0,
+        triangleTimeFactor: Double = 0.3,
+        triangleSafetyFactor: Double = 0.4,
+        triangleFlatnessFactor: Double = 0.3,
         numItineraries: Int = 5
     ): OtpPlanConnectionResponse {
         val query = buildQuery(
             originLat, originLon,
             destLat, destLon,
             bicycleReluctance, bicycleBoardCost,
-            bicycleSpeed, numItineraries
+            bicycleSpeed,
+            triangleTimeFactor, triangleSafetyFactor, triangleFlatnessFactor,
+            numItineraries
         )
 
         return httpClient.post("$baseUrl/otp/routers/default/index/graphql") {
@@ -46,6 +51,9 @@ class OtpGraphQlClient @Inject constructor(
         bicycleReluctance: Double,
         bicycleBoardCost: Int,
         bicycleSpeed: Double,
+        triangleTimeFactor: Double,
+        triangleSafetyFactor: Double,
+        triangleFlatnessFactor: Double,
         numItineraries: Int
     ): String = """
         {
@@ -69,6 +77,22 @@ class OtpGraphQlClient @Inject constructor(
                   { mode: TRAM }
                   { mode: FERRY }
                 ]
+              }
+            }
+            preferences: {
+              street: {
+                bicycle: {
+                  reluctance: $bicycleReluctance
+                  boardCost: $bicycleBoardCost
+                  speed: $bicycleSpeed
+                  optimization: {
+                    triangle: {
+                      time: $triangleTimeFactor
+                      safety: $triangleSafetyFactor
+                      flatness: $triangleFlatnessFactor
+                    }
+                  }
+                }
               }
             }
           ) {

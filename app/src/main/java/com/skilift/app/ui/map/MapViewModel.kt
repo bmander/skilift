@@ -8,6 +8,7 @@ import com.skilift.app.data.repository.TripRepository
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.TripPreferences
+import com.skilift.app.ui.map.components.TriangleWeights
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class MapUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val bikeTransitBalance: Float = 0.5f,
+    val triangleWeights: TriangleWeights = TriangleWeights(0.3f, 0.4f, 0.3f),
     val isSelectingOrigin: Boolean = true,
     val preferences: TripPreferences = TripPreferences()
 )
@@ -43,7 +45,12 @@ class MapViewModel @Inject constructor(
             preferencesRepository.preferences.collect { prefs ->
                 _uiState.update { it.copy(
                     preferences = prefs,
-                    bikeTransitBalance = prefs.bikeTransitBalance
+                    bikeTransitBalance = prefs.bikeTransitBalance,
+                    triangleWeights = TriangleWeights(
+                        time = prefs.triangleTimeFactor,
+                        safety = prefs.triangleSafetyFactor,
+                        flatness = prefs.triangleFlatnessFactor
+                    )
                 ) }
             }
         }
@@ -73,6 +80,22 @@ class MapViewModel @Inject constructor(
         searchTrips()
     }
 
+    fun onTriangleWeightsChanged(weights: TriangleWeights) {
+        _uiState.update { it.copy(triangleWeights = weights) }
+    }
+
+    fun onTriangleWeightsChangeFinished() {
+        val weights = _uiState.value.triangleWeights
+        viewModelScope.launch {
+            preferencesRepository.updateTriangleFactors(
+                time = weights.time,
+                safety = weights.safety,
+                flatness = weights.flatness
+            )
+        }
+        searchTrips()
+    }
+
     fun selectItinerary(index: Int) {
         _uiState.update { it.copy(selectedItineraryIndex = index) }
     }
@@ -98,6 +121,7 @@ class MapViewModel @Inject constructor(
         val origin = _uiState.value.origin ?: return
         val destination = _uiState.value.destination ?: return
         val balance = _uiState.value.bikeTransitBalance
+        val weights = _uiState.value.triangleWeights
 
         val (reluctance, boardCost) = mapSliderToOtpPreferences(balance)
 
@@ -109,7 +133,10 @@ class MapViewModel @Inject constructor(
                 destination = destination,
                 bicycleReluctance = reluctance,
                 bicycleBoardCost = boardCost,
-                bicycleSpeed = _uiState.value.preferences.maxBikeSpeedMps.toDouble()
+                bicycleSpeed = _uiState.value.preferences.maxBikeSpeedMps.toDouble(),
+                triangleTimeFactor = weights.time.toDouble(),
+                triangleSafetyFactor = weights.safety.toDouble(),
+                triangleFlatnessFactor = weights.flatness.toDouble()
             ).onSuccess { itineraries ->
                 _uiState.update {
                     it.copy(

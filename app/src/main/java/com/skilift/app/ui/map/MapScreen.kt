@@ -43,6 +43,7 @@ import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
 import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
+import com.skilift.app.ui.map.components.BikeTriangleWidget
 import com.skilift.app.ui.map.components.PreferenceSlider
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -230,6 +231,13 @@ fun MapScreen(
                     onValueChange = { viewModel.onSliderChanged(it) },
                     onValueChangeFinished = { viewModel.onSliderChangeFinished() },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+
+                BikeTriangleWidget(
+                    weights = uiState.triangleWeights,
+                    onWeightsChanged = { viewModel.onTriangleWeightsChanged(it) },
+                    onWeightsChangeFinished = { viewModel.onTriangleWeightsChangeFinished() },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
                 Text(
