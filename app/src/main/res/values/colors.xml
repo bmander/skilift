@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="teal_primary">#00796B</color>
+    <color name="teal_dark">#004D40</color>
+    <color name="bike_green">#4CAF50</color>
+    <color name="transit_blue">#2196F3</color>
+    <color name="rail_purple">#9C27B0</color>
+    <color name="walk_gray">#9E9E9E</color>
+    <color name="ferry_teal">#009688</color>
+</resources>

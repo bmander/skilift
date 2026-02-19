@@ -1,0 +1,51 @@
+steps:
+  # Step 1: Download GTFS feeds and OSM data, then clip to Seattle bbox
+  - name: 'ubuntu'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        apt-get update && apt-get install -y curl osmium-tool
+
+        echo "Downloading KCM GTFS..."
+        curl -L -o /workspace/kcm-gtfs.zip \
+          "http://metro.kingcounty.gov/gtfs/google_transit.zip"
+
+        echo "Downloading Sound Transit GTFS..."
+        curl -L -o /workspace/st-gtfs.zip \
+          "https://www.soundtransit.org/GTFS-KCM/google_transit.zip"
+
+        echo "Downloading Washington state OSM..."
+        curl -L -o /workspace/wa.osm.pbf \
+          "https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf"
+
+        echo "Clipping to Seattle bounding box..."
+        osmium extract \
+          --bbox=-122.5,47.3,-122.1,47.8 \
+          -o /workspace/seattle.osm.pbf \
+          /workspace/wa.osm.pbf
+
+        rm /workspace/wa.osm.pbf
+
+  # Step 2: Upload data and config files to GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - '-m'
+      - 'cp'
+      - '/workspace/kcm-gtfs.zip'
+      - '/workspace/st-gtfs.zip'
+      - '/workspace/seattle.osm.pbf'
+      - 'gs://skilift-otp-data/'
+
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - '-m'
+      - 'cp'
+      - 'otp/build-config.json'
+      - 'otp/otp-config.json'
+      - 'otp/router-config.json'
+      - 'gs://skilift-otp-data/'
+
+timeout: '900s'
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,12 @@
+{
+  "routingDefaults": {
+    "bicycle": {
+      "reluctance": 2.0,
+      "boardCost": 600,
+      "speed": 5.0,
+      "optimization": "SAFE_STREETS"
+    },
+    "numItineraries": 5,
+    "searchWindow": "PT2H"
+  }
+}

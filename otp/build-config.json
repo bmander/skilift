@@ -1,0 +1,19 @@
+{
+  "transit": [
+    {
+      "type": "gtfs",
+      "source": "file:///var/opentripplanner/kcm-gtfs.zip",
+      "feedId": "kcm"
+    },
+    {
+      "type": "gtfs",
+      "source": "file:///var/opentripplanner/st-gtfs.zip",
+      "feedId": "st"
+    }
+  ],
+  "osm": [
+    {
+      "source": "file:///var/opentripplanner/seattle.osm.pbf"
+    }
+  ]
+}

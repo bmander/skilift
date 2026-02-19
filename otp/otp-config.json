@@ -1,0 +1,7 @@
+{
+  "otpFeatures": {
+    "GtfsGraphQlApi": true,
+    "DebugUi": true,
+    "FloatingBike": true
+  }
+}
