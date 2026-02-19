@@ -7,7 +7,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.skilift.app.ui.map.MapScreen
-import com.skilift.app.ui.settings.SettingsScreen
 import com.skilift.app.ui.tripdetails.TripDetailsScreen
 
 @Composable
@@ -19,9 +18,6 @@ fun SkiliftNavGraph() {
             MapScreen(
                 onItinerarySelected = { index ->
                     navController.navigate(Screen.TripDetails.createRoute(index))
-                },
-                onSettingsClick = {
-                    navController.navigate(Screen.Settings.route)
                 }
             )
         }
@@ -35,10 +31,6 @@ fun SkiliftNavGraph() {
                 itineraryIndex = itineraryIndex,
                 onBack = { navController.popBackStack() }
             )
-        }
-
-        composable(Screen.Settings.route) {
-            SettingsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

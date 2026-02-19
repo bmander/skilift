@@ -4,34 +4,51 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mapbox.geojson.Point
 import com.mapbox.maps.extension.compose.MapboxMap
@@ -44,16 +61,26 @@ import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.BikeTriangleWidget
-import com.skilift.app.ui.map.components.PreferenceSlider
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
     onItinerarySelected: (Int) -> Unit,
-    onSettingsClick: () -> Unit,
     viewModel: MapViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val drawerHeight = (configuration.screenHeightDp / 3).dp
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    val bottomSheetState = rememberStandardBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        skipHiddenState = false
+    )
+    val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = bottomSheetState)
 
     val mapViewportState = rememberMapViewportState {
         setCameraOptions {
@@ -62,7 +89,102 @@ fun MapScreen(
         }
     }
 
-    Scaffold(
+    BottomSheetScaffold(
+        scaffoldState = scaffoldState,
+        sheetPeekHeight = 0.dp,
+        sheetContent = {
+            Column(
+                modifier = Modifier
+                    .height(drawerHeight)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+            ) {
+                // Bike/Transit Balance
+                Text(
+                    text = "Bike/Transit Balance",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "More Transit",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "More Biking",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Slider(
+                    value = uiState.bikeTransitBalance,
+                    onValueChange = { viewModel.onSliderChanged(it) },
+                    onValueChangeFinished = { viewModel.onSliderChangeFinished() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Cycling Optimization
+                Text(
+                    text = "Cycling Optimization",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Drag the point to balance fast, safe, and flat routing",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                BikeTriangleWidget(
+                    weights = uiState.triangleWeights,
+                    onWeightsChanged = { viewModel.onTriangleWeightsChanged(it) },
+                    onWeightsChangeFinished = { viewModel.onTriangleWeightsChangeFinished() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Max Bike Speed
+                Text(
+                    text = "Max Bike Speed",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "%.1f m/s (%.1f mph)".format(
+                        uiState.maxBikeSpeedMps,
+                        uiState.maxBikeSpeedMps * 2.237
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Slider(
+                    value = uiState.maxBikeSpeedMps,
+                    onValueChange = { viewModel.onMaxBikeSpeedChanged(it) },
+                    onValueChangeFinished = { viewModel.onMaxBikeSpeedChangeFinished() },
+                    valueRange = 3.0f..8.0f,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text("3.0 m/s", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text("8.0 m/s", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Skilift") },
@@ -80,10 +202,18 @@ fun MapScreen(
                             )
                         }
                     }
-                    IconButton(onClick = onSettingsClick) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            if (bottomSheetState.currentValue == SheetValue.Expanded) {
+                                bottomSheetState.hide()
+                            } else {
+                                bottomSheetState.expand()
+                            }
+                        }
+                    }) {
                         Icon(
                             Icons.Default.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = "Tuning",
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
@@ -91,11 +221,25 @@ fun MapScreen(
             )
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+        // Track the sheet's hidden-state offset as a reference point.
+        // This avoids coordinate-space assumptions: the visible sheet height
+        // is simply the difference between the hidden offset and the current offset.
+        val hiddenOffsetPx = remember { mutableFloatStateOf(0f) }
+
+        val visibleSheetDp = try {
+            val currentOffset = bottomSheetState.requireOffset()
+            if (currentOffset > hiddenOffsetPx.floatValue) {
+                hiddenOffsetPx.floatValue = currentOffset
+            }
+            val visiblePx = (hiddenOffsetPx.floatValue - currentOffset).coerceAtLeast(0f)
+            with(density) { visiblePx.toDp() }
+        } catch (_: IllegalStateException) {
+            0.dp
+        }
+
+        val overlayBottomPadding = max(visibleSheetDp, navigationBarPadding)
+
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             MapboxMap(
                 modifier = Modifier.fillMaxSize(),
                 mapViewportState = mapViewportState,
@@ -192,6 +336,7 @@ fun MapScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .padding(bottom = overlayBottomPadding)
             ) {
                 if (uiState.isLoading) {
                     CircularProgressIndicator(
@@ -225,20 +370,6 @@ fun MapScreen(
                         }
                     )
                 }
-
-                PreferenceSlider(
-                    value = uiState.bikeTransitBalance,
-                    onValueChange = { viewModel.onSliderChanged(it) },
-                    onValueChangeFinished = { viewModel.onSliderChangeFinished() },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                BikeTriangleWidget(
-                    weights = uiState.triangleWeights,
-                    onWeightsChanged = { viewModel.onTriangleWeightsChanged(it) },
-                    onWeightsChangeFinished = { viewModel.onTriangleWeightsChangeFinished() },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                )
 
                 Text(
                     text = if (uiState.isSelectingOrigin) "Tap to set origin" else "Tap to set destination",
@@ -289,14 +420,15 @@ private fun ItineraryCards(
                             Spacer(modifier = Modifier.width(2.dp))
                         }
                     }
-                    if (index == selectedIndex) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap for details",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Tap for details",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (index == selectedIndex)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            Color.Transparent
+                    )
                 }
             }
         }

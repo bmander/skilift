@@ -26,6 +26,7 @@ data class MapUiState(
     val error: String? = null,
     val bikeTransitBalance: Float = 0.5f,
     val triangleWeights: TriangleWeights = TriangleWeights(0.3f, 0.4f, 0.3f),
+    val maxBikeSpeedMps: Float = 5.0f,
     val isSelectingOrigin: Boolean = true,
     val preferences: TripPreferences = TripPreferences()
 )
@@ -46,6 +47,7 @@ class MapViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     preferences = prefs,
                     bikeTransitBalance = prefs.bikeTransitBalance,
+                    maxBikeSpeedMps = prefs.maxBikeSpeedMps,
                     triangleWeights = TriangleWeights(
                         time = prefs.triangleTimeFactor,
                         safety = prefs.triangleSafetyFactor,
@@ -96,6 +98,17 @@ class MapViewModel @Inject constructor(
         searchTrips()
     }
 
+    fun onMaxBikeSpeedChanged(value: Float) {
+        _uiState.update { it.copy(maxBikeSpeedMps = value) }
+    }
+
+    fun onMaxBikeSpeedChangeFinished() {
+        viewModelScope.launch {
+            preferencesRepository.updateMaxBikeSpeed(_uiState.value.maxBikeSpeedMps)
+        }
+        searchTrips()
+    }
+
     fun selectItinerary(index: Int) {
         _uiState.update { it.copy(selectedItineraryIndex = index) }
     }
@@ -133,7 +146,7 @@ class MapViewModel @Inject constructor(
                 destination = destination,
                 bicycleReluctance = reluctance,
                 bicycleBoardCost = boardCost,
-                bicycleSpeed = _uiState.value.preferences.maxBikeSpeedMps.toDouble(),
+                bicycleSpeed = _uiState.value.maxBikeSpeedMps.toDouble(),
                 triangleTimeFactor = weights.time.toDouble(),
                 triangleSafetyFactor = weights.safety.toDouble(),
                 triangleFlatnessFactor = weights.flatness.toDouble()
