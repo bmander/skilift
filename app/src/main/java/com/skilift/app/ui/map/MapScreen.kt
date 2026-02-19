@@ -186,7 +186,6 @@ fun MapScreen(
                 }
             }
         },
-        sheetDragHandle = null
     ) { paddingValues ->
         // Track the sheet's hidden-state offset as a reference point.
         // This avoids coordinate-space assumptions: the visible sheet height
