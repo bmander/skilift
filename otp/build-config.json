@@ -1,5 +1,5 @@
 {
-  "transit": [
+  "transitFeeds": [
     {
       "type": "gtfs",
       "source": "file:///var/opentripplanner/kcm-gtfs.zip",
