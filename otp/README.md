@@ -45,7 +45,7 @@ Download the Washington state extract from Geofabrik, then clip it to the Seattl
 curl -L -o /tmp/washington-latest.osm.pbf \
   "https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf"
 
-# Clip to Seattle bounding box (~47.3-47.8N, 122.1-122.5W)
+# Clip to region bounding box (values from gradle.properties REGION_BBOX_* properties)
 osmium extract \
   --bbox=-122.5,47.3,-122.1,47.8 \
   --output=otp/data/seattle.osm.pbf \
@@ -141,7 +141,7 @@ When GTFS feeds are updated (typically every few months):
 
 Three Cloud Build jobs automate the data refresh, graph build, and server deployment on GCP:
 
-- **`cloudbuild-prepare-data.yaml`** — Downloads KCM + Sound Transit GTFS feeds, downloads and clips Washington OSM data to the Seattle bounding box, downloads USGS DEM elevation data, and uploads everything (including config files) to `gs://skilift-otp-data/`.
+- **`cloudbuild-prepare-data.yaml`** — Downloads KCM + Sound Transit GTFS feeds, downloads and clips Washington OSM data to the region bounding box (configurable via `_REGION_BBOX_*` substitution variables), downloads USGS DEM elevation data, and uploads everything (including config files) to `gs://skilift-otp-data/`.
 - **`cloudbuild-build-graph.yaml`** — Runs the OTP graph build inside Cloud Build (on a high-memory worker), then uploads the built `graph.obj` to GCS.
 - **`cloudbuild-start-server.yaml`** — SSHes into the `skilift-otp` VM, downloads the pre-built graph from GCS, and (re)starts the server container. No graph building happens on the VM.
 

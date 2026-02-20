@@ -22,6 +22,15 @@ android {
 
         resValue("string", "mapbox_access_token",
             providers.gradleProperty("MAPBOX_ACCESS_TOKEN").getOrElse(""))
+
+        buildConfigField("double", "REGION_BBOX_WEST",
+            providers.gradleProperty("REGION_BBOX_WEST").get())
+        buildConfigField("double", "REGION_BBOX_SOUTH",
+            providers.gradleProperty("REGION_BBOX_SOUTH").get())
+        buildConfigField("double", "REGION_BBOX_EAST",
+            providers.gradleProperty("REGION_BBOX_EAST").get())
+        buildConfigField("double", "REGION_BBOX_NORTH",
+            providers.gradleProperty("REGION_BBOX_NORTH").get())
     }
 
     buildTypes {
@@ -47,6 +56,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

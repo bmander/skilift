@@ -87,9 +87,9 @@ steps:
         if check_and_download "osm" \
             "https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf" \
             "/workspace/wa.osm.pbf"; then
-          echo "  Clipping to Seattle bounding box..."
+          echo "  Clipping to region bounding box..."
           osmium extract \
-            --bbox=-122.5,47.3,-122.1,47.8 \
+            --bbox=${_REGION_BBOX_WEST},${_REGION_BBOX_SOUTH},${_REGION_BBOX_EAST},${_REGION_BBOX_NORTH} \
             -o /workspace/seattle.osm.pbf \
             /workspace/wa.osm.pbf
           rm /workspace/wa.osm.pbf
@@ -145,6 +145,12 @@ steps:
       - 'otp/otp-config.json'
       - 'otp/router-config.json'
       - 'gs://skilift-otp-data/'
+
+substitutions:
+  _REGION_BBOX_WEST: '-122.5'
+  _REGION_BBOX_SOUTH: '47.3'
+  _REGION_BBOX_EAST: '-122.1'
+  _REGION_BBOX_NORTH: '47.8'
 
 timeout: '900s'
 options:
