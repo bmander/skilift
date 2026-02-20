@@ -9,6 +9,7 @@ import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.TripPreferences
 import com.skilift.app.ui.map.components.TriangleWeights
+import com.skilift.app.BuildConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -170,12 +171,14 @@ class MapViewModel @Inject constructor(
     }
 
     companion object {
-        // Coverage area: Seattle bounding box from OTP graph build
-        // OSM data clipped to --bbox=-122.5,47.3,-122.1,47.8
-        const val COVERAGE_NORTH = 47.8
-        const val COVERAGE_SOUTH = 47.3
-        const val COVERAGE_EAST = -122.1
-        const val COVERAGE_WEST = -122.5
+        // Coverage area from gradle.properties REGION_BBOX_* values
+        val COVERAGE_NORTH = BuildConfig.REGION_BBOX_NORTH
+        val COVERAGE_SOUTH = BuildConfig.REGION_BBOX_SOUTH
+        val COVERAGE_EAST = BuildConfig.REGION_BBOX_EAST
+        val COVERAGE_WEST = BuildConfig.REGION_BBOX_WEST
+
+        val CENTER_LATITUDE = (COVERAGE_SOUTH + COVERAGE_NORTH) / 2.0
+        val CENTER_LONGITUDE = (COVERAGE_WEST + COVERAGE_EAST) / 2.0
 
         fun isInCoverageArea(latLng: LatLng): Boolean =
             latLng.latitude in COVERAGE_SOUTH..COVERAGE_NORTH &&
