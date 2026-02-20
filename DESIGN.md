@@ -182,7 +182,7 @@ Skilift uses the OTP2 `planConnection` query with `modes` configured for bicycle
       ]
       accessMode: BICYCLE
       egressMode: BICYCLE
-      transferMode: WALK
+      transferMode: BICYCLE
     }
     preferences: {
       street: {
@@ -223,7 +223,7 @@ Skilift uses the OTP2 `planConnection` query with `modes` configured for bicycle
 
 - **`accessMode: BICYCLE` and `egressMode: BICYCLE`**: The rider bikes to the first transit stop and from the last transit stop to the destination.
 - **`directMode: BICYCLE`**: Also returns a pure-cycling option for comparison.
-- **`transferMode: WALK`**: Transfers between transit legs are done on foot.
+- **`transferMode: BICYCLE`**: Transfers between transit legs are done by bike, allowing transfers between distant stops.
 - **Transit modes include BUS, RAIL, TRAM, and FERRY**: Covers King County Metro buses, Sound Transit Link light rail and Sounder commuter rail, streetcars, and Washington State Ferries.
 
 ## Preference Slider Mapping
