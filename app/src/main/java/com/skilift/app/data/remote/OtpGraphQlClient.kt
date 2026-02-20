@@ -26,6 +26,7 @@ class OtpGraphQlClient @Inject constructor(
         triangleTimeFactor: Double = 0.3,
         triangleSafetyFactor: Double = 0.4,
         triangleFlatnessFactor: Double = 0.3,
+        hillReluctance: Double = 1.0,
         numItineraries: Int = 5
     ): OtpPlanConnectionResponse {
         val query = buildQuery(
@@ -34,6 +35,7 @@ class OtpGraphQlClient @Inject constructor(
             bicycleReluctance, bicycleBoardCost,
             bicycleSpeed,
             triangleTimeFactor, triangleSafetyFactor, triangleFlatnessFactor,
+            hillReluctance,
             numItineraries
         )
 
@@ -54,6 +56,7 @@ class OtpGraphQlClient @Inject constructor(
         triangleTimeFactor: Double,
         triangleSafetyFactor: Double,
         triangleFlatnessFactor: Double,
+        hillReluctance: Double,
         numItineraries: Int
     ): String = """
         {
@@ -85,6 +88,7 @@ class OtpGraphQlClient @Inject constructor(
                   reluctance: $bicycleReluctance
                   boardCost: $bicycleBoardCost
                   speed: $bicycleSpeed
+                  hillReluctance: $hillReluctance
                   optimization: {
                     triangle: {
                       time: $triangleTimeFactor

@@ -1,10 +1,17 @@
 steps:
   # Step 1: Check if input files have changed since last graph build
+  # Pass _FORCE_BUILD=true to skip this check (e.g. after OTP source changes)
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        if [ "${_FORCE_BUILD}" = "true" ]; then
+          echo "Forced build requested — skipping hash check"
+          echo "forced" > /workspace/current-hash.txt
+          exit 0
+        fi
+
         CURRENT_HASH=$$(gsutil stat \
           gs://skilift-otp-data/kcm-gtfs.zip \
           gs://skilift-otp-data/st-gtfs.zip \
@@ -58,7 +65,7 @@ steps:
         path: '/otp-cache'
 
   # Step 3: Build the OTP graph (skipped if inputs unchanged)
-  - name: 'opentripplanner/opentripplanner:2.7.0'
+  - name: 'us-west1-docker.pkg.dev/skilift-450102/otp/opentripplanner:latest'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -67,7 +74,7 @@ steps:
           echo "Skipping graph build — inputs unchanged"
           exit 0
         fi
-        exec /docker-entrypoint.sh --build --save --cache /var/otp/cache
+        exec /docker-entrypoint.sh --build --save --cache /var/otp/cache /var/opentripplanner
     env:
       - 'JAVA_OPTS=-Xmx12g'
     volumes:
@@ -97,6 +104,9 @@ steps:
         path: '/otp-data'
       - name: 'otp-cache'
         path: '/otp-cache'
+
+substitutions:
+  _FORCE_BUILD: 'false'
 
 timeout: '3600s'
 options:

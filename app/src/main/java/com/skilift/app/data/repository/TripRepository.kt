@@ -12,6 +12,7 @@ interface TripRepository {
         bicycleSpeed: Double,
         triangleTimeFactor: Double = 0.3,
         triangleSafetyFactor: Double = 0.4,
-        triangleFlatnessFactor: Double = 0.3
+        triangleFlatnessFactor: Double = 0.3,
+        hillReluctance: Double = 1.0
     ): Result<List<Itinerary>>
 }

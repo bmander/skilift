@@ -63,4 +63,14 @@ class SettingsViewModel @Inject constructor(
             preferencesRepository.updateMaxBikeSpeed(value)
         }
     }
+
+    fun updateHillReluctance(value: Float) {
+        _preferences.update { it.copy(hillReluctance = value) }
+    }
+
+    fun saveHillReluctance() {
+        viewModelScope.launch {
+            preferencesRepository.updateHillReluctance(_preferences.value.hillReluctance)
+        }
+    }
 }
