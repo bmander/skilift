@@ -120,7 +120,10 @@ fun ElevationProfileChart(
                     }
 
                     val fillPath = Path().apply {
-                        addPath(linePath)
+                        moveTo(xFor(segment.first().distanceMeters), yFor(segment.first().elevationMeters))
+                        for (i in 1 until segment.size) {
+                            lineTo(xFor(segment[i].distanceMeters), yFor(segment[i].elevationMeters))
+                        }
                         lineTo(xFor(segment.last().distanceMeters), chartHeight)
                         lineTo(xFor(segment.first().distanceMeters), chartHeight)
                         close()

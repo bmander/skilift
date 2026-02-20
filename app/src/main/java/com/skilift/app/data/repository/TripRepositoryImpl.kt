@@ -78,14 +78,23 @@ class TripRepositoryImpl @Inject constructor(
         if (steps.isNullOrEmpty()) return emptyList()
         val result = mutableListOf<ElevationPoint>()
         var cumulativeDistance = 0.0
+        var maxCumulativeSoFar = -1.0
         for (step in steps) {
+            var maxDistInStep = 0.0
             step.elevationProfile?.forEach { component ->
-                result.add(ElevationPoint(
-                    distanceMeters = cumulativeDistance + component.distance,
-                    elevationMeters = component.elevation
-                ))
+                val dist = cumulativeDistance + component.distance
+                if (dist > maxCumulativeSoFar) {
+                    result.add(ElevationPoint(
+                        distanceMeters = dist,
+                        elevationMeters = component.elevation
+                    ))
+                    maxCumulativeSoFar = dist
+                }
+                if (component.distance > maxDistInStep) {
+                    maxDistInStep = component.distance
+                }
             }
-            cumulativeDistance += step.distance ?: 0.0
+            cumulativeDistance += maxOf(step.distance ?: 0.0, maxDistInStep)
         }
         return result
     }
