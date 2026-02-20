@@ -23,5 +23,14 @@
   ],
   "multiThreadElevationCalculations": true,
   "writeCachedElevations": true,
-  "readCachedElevations": true
+  "readCachedElevations": true,
+  "transferRequests": [
+    { "modes": "WALK" },
+    { "modes": "BICYCLE" }
+  ],
+  "transferParametersForMode": {
+    "BIKE": {
+      "maxTransferDuration": "PT45M"
+    }
+  }
 }

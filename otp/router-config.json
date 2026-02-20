@@ -13,5 +13,11 @@
     },
     "numItineraries": 5,
     "searchWindow": "PT2H"
+  },
+  "transit": {
+    "transferCacheRequests": [
+      { "modes": "WALK" },
+      { "modes": "BICYCLE" }
+    ]
   }
 }
