@@ -1,0 +1,4 @@
+[submodule "otp/OpenTripPlanner"]
+	path = otp/OpenTripPlanner
+	url = https://github.com/bmander/OpenTripPlanner.git
+	branch = hill-avoidance

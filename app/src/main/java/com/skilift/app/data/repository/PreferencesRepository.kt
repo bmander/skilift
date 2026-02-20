@@ -18,4 +18,7 @@ class PreferencesRepository @Inject constructor(
 
     suspend fun updateMaxBikeSpeed(value: Float) =
         dataStore.updateMaxBikeSpeed(value)
+
+    suspend fun updateHillReluctance(value: Float) =
+        dataStore.updateHillReluctance(value)
 }

@@ -111,6 +111,31 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
+            // Hill avoidance
+            Text(
+                text = "Hill Avoidance",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text("Normal", style = MaterialTheme.typography.labelSmall)
+                Spacer(modifier = Modifier.weight(1f))
+                Text("Strong", style = MaterialTheme.typography.labelSmall)
+            }
+            Slider(
+                value = preferences.hillReluctance,
+                onValueChange = { viewModel.updateHillReluctance(it) },
+                onValueChangeFinished = { viewModel.saveHillReluctance() },
+                valueRange = 1.0f..3.0f,
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary
+                )
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
             // Max bike speed
             Text(
                 text = "Max Bike Speed",

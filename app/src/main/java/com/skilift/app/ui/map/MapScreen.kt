@@ -156,6 +156,39 @@ fun MapScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
+                // Hill Avoidance
+                Text(
+                    text = "Hill Avoidance",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Normal",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "Strong",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Slider(
+                    value = uiState.hillReluctance,
+                    onValueChange = { viewModel.onHillReluctanceChanged(it) },
+                    onValueChangeFinished = { viewModel.onHillReluctanceChangeFinished() },
+                    valueRange = 1.0f..3.0f,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
                 // Max Bike Speed
                 Text(
                     text = "Max Bike Speed",

@@ -5,5 +5,6 @@ data class TripPreferences(
     val triangleTimeFactor: Float = 0.3f,
     val triangleSafetyFactor: Float = 0.4f,
     val triangleFlatnessFactor: Float = 0.3f,
-    val maxBikeSpeedMps: Float = 5.0f
+    val maxBikeSpeedMps: Float = 5.0f,
+    val hillReluctance: Float = 1.0f
 )

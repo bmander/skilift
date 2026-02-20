@@ -24,7 +24,8 @@ class TripRepositoryImpl @Inject constructor(
         bicycleSpeed: Double,
         triangleTimeFactor: Double,
         triangleSafetyFactor: Double,
-        triangleFlatnessFactor: Double
+        triangleFlatnessFactor: Double,
+        hillReluctance: Double
     ): Result<List<Itinerary>> = runCatching {
         val response = otpClient.planConnection(
             originLat = origin.latitude,
@@ -36,7 +37,8 @@ class TripRepositoryImpl @Inject constructor(
             bicycleSpeed = bicycleSpeed,
             triangleTimeFactor = triangleTimeFactor,
             triangleSafetyFactor = triangleSafetyFactor,
-            triangleFlatnessFactor = triangleFlatnessFactor
+            triangleFlatnessFactor = triangleFlatnessFactor,
+            hillReluctance = hillReluctance
         )
 
         val errors = response.errors

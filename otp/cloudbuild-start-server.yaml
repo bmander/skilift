@@ -9,7 +9,7 @@ steps:
           --zone=us-west1-b \
           --command='mkdir -p $$HOME/skilift/otp/data && gsutil -m cp gs://skilift-otp-data/graph.obj gs://skilift-otp-data/otp-config.json gs://skilift-otp-data/router-config.json $$HOME/skilift/otp/data/'
 
-  # Step 2: Pull the OTP Docker image
+  # Step 2: Configure Docker on the VM to pull from Artifact Registry, then pull the image
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -17,7 +17,7 @@ steps:
       - |
         gcloud compute ssh skilift-otp \
           --zone=us-west1-b \
-          --command='sudo docker pull opentripplanner/opentripplanner:2.7.0'
+          --command='sudo gcloud auth configure-docker us-west1-docker.pkg.dev --quiet && sudo docker pull us-west1-docker.pkg.dev/skilift-450102/otp/opentripplanner:latest'
 
   # Step 3: Stop and remove the old OTP server container
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -37,7 +37,7 @@ steps:
       - |
         gcloud compute ssh skilift-otp \
           --zone=us-west1-b \
-          --command='sudo docker run -d --name otp-server --restart=always -v $$HOME/skilift/otp/data:/var/opentripplanner -p 8080:8080 -e JAVA_OPTS="-Xmx8g" opentripplanner/opentripplanner:2.7.0 --load --serve'
+          --command='sudo docker run -d --name otp-server --restart=always -v $$HOME/skilift/otp/data:/var/opentripplanner -p 8080:8080 -e JAVA_OPTS="-Xmx8g" us-west1-docker.pkg.dev/skilift-450102/otp/opentripplanner:latest --load --serve /var/opentripplanner'
 
 timeout: '600s'
 options:

@@ -1,6 +1,6 @@
 services:
   otp-build:
-    image: docker.io/opentripplanner/opentripplanner:2.7.0
+    build: .
     command: --build --save
     volumes:
       - ./data:/var/opentripplanner
@@ -8,7 +8,7 @@ services:
       JAVA_OPTS: "-Xmx12g"
 
   otp-server:
-    image: docker.io/opentripplanner/opentripplanner:2.7.0
+    build: .
     command: --load --serve
     volumes:
       - ./data:/var/opentripplanner

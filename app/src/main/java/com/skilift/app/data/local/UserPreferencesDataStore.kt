@@ -25,6 +25,7 @@ class UserPreferencesDataStore @Inject constructor(
         val TRIANGLE_SAFETY_FACTOR = floatPreferencesKey("triangle_safety_factor")
         val TRIANGLE_FLATNESS_FACTOR = floatPreferencesKey("triangle_flatness_factor")
         val MAX_BIKE_SPEED = floatPreferencesKey("max_bike_speed")
+        val HILL_RELUCTANCE = floatPreferencesKey("hill_reluctance")
     }
 
     val preferences: Flow<TripPreferences> = context.dataStore.data.map { prefs ->
@@ -33,7 +34,8 @@ class UserPreferencesDataStore @Inject constructor(
             triangleTimeFactor = prefs[Keys.TRIANGLE_TIME_FACTOR] ?: 0.3f,
             triangleSafetyFactor = prefs[Keys.TRIANGLE_SAFETY_FACTOR] ?: 0.4f,
             triangleFlatnessFactor = prefs[Keys.TRIANGLE_FLATNESS_FACTOR] ?: 0.3f,
-            maxBikeSpeedMps = prefs[Keys.MAX_BIKE_SPEED] ?: 5.0f
+            maxBikeSpeedMps = prefs[Keys.MAX_BIKE_SPEED] ?: 5.0f,
+            hillReluctance = prefs[Keys.HILL_RELUCTANCE] ?: 1.0f
         )
     }
 
@@ -54,6 +56,12 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun updateMaxBikeSpeed(value: Float) {
         context.dataStore.edit { prefs ->
             prefs[Keys.MAX_BIKE_SPEED] = value
+        }
+    }
+
+    suspend fun updateHillReluctance(value: Float) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.HILL_RELUCTANCE] = value
         }
     }
 }

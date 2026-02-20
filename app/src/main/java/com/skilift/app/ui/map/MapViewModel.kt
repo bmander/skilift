@@ -28,6 +28,7 @@ data class MapUiState(
     val bikeTransitBalance: Float = 0.5f,
     val triangleWeights: TriangleWeights = TriangleWeights(0.3f, 0.4f, 0.3f),
     val maxBikeSpeedMps: Float = 5.0f,
+    val hillReluctance: Float = 1.0f,
     val isSelectingOrigin: Boolean = true,
     val preferences: TripPreferences = TripPreferences()
 )
@@ -49,6 +50,7 @@ class MapViewModel @Inject constructor(
                     preferences = prefs,
                     bikeTransitBalance = prefs.bikeTransitBalance,
                     maxBikeSpeedMps = prefs.maxBikeSpeedMps,
+                    hillReluctance = prefs.hillReluctance,
                     triangleWeights = TriangleWeights(
                         time = prefs.triangleTimeFactor,
                         safety = prefs.triangleSafetyFactor,
@@ -110,6 +112,17 @@ class MapViewModel @Inject constructor(
         searchTrips()
     }
 
+    fun onHillReluctanceChanged(value: Float) {
+        _uiState.update { it.copy(hillReluctance = value) }
+    }
+
+    fun onHillReluctanceChangeFinished() {
+        viewModelScope.launch {
+            preferencesRepository.updateHillReluctance(_uiState.value.hillReluctance)
+        }
+        searchTrips()
+    }
+
     fun selectItinerary(index: Int) {
         _uiState.update { it.copy(selectedItineraryIndex = index) }
     }
@@ -150,7 +163,8 @@ class MapViewModel @Inject constructor(
                 bicycleSpeed = _uiState.value.maxBikeSpeedMps.toDouble(),
                 triangleTimeFactor = weights.time.toDouble(),
                 triangleSafetyFactor = weights.safety.toDouble(),
-                triangleFlatnessFactor = weights.flatness.toDouble()
+                triangleFlatnessFactor = weights.flatness.toDouble(),
+                hillReluctance = _uiState.value.hillReluctance.toDouble()
             ).onSuccess { itineraries ->
                 _uiState.update {
                     it.copy(
