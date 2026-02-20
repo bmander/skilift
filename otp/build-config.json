@@ -27,5 +27,10 @@
   "transferRequests": [
     { "modes": "WALK" },
     { "modes": "BICYCLE" }
-  ]
+  ],
+  "transferParametersForMode": {
+    "BIKE": {
+      "maxTransferDuration": "PT45M"
+    }
+  }
 }
