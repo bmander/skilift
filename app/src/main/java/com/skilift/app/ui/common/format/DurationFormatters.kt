@@ -5,7 +5,7 @@ fun formatDurationMinutes(seconds: Int): String {
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
     return if (hours > 0) {
-        "%d:%02d".format(hours, minutes)
+        "$hours hr $minutes min"
     } else {
         "$totalMinutes min"
     }
