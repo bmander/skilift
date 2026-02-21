@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,8 +39,10 @@ fun GeocoderSearchOverlay(
     query: String,
     results: List<GeocodingResult>,
     isLoading: Boolean,
+    userLocationAvailable: Boolean,
     onQueryChanged: (String) -> Unit,
     onResultSelected: (GeocodingResult) -> Unit,
+    onCurrentLocationSelected: () -> Unit,
     onDismiss: () -> Unit
 ) {
     BackHandler { onDismiss() }
@@ -84,6 +87,27 @@ fun GeocoderSearchOverlay(
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                if (userLocationAvailable) {
+                    item {
+                        ListItem(
+                            leadingContent = {
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            headlineContent = {
+                                Text(
+                                    "Current location",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            modifier = Modifier.clickable { onCurrentLocationSelected() }
+                        )
+                        HorizontalDivider()
+                    }
+                }
                 items(results) { result ->
                     ListItem(
                         headlineContent = { Text(result.name) },

@@ -359,6 +359,24 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    fun onCurrentLocationSelectedFromSearch() {
+        val target = _uiState.value.geocoderSearchTarget ?: return
+        _uiState.update {
+            it.copy(
+                showGeocoderSearch = false,
+                geocoderSearchTarget = null,
+                geocoderQuery = "",
+                geocoderResults = emptyList(),
+                isGeocoderLoading = false
+            )
+        }
+        geocoderJob?.cancel()
+        when (target) {
+            SearchTarget.ORIGIN -> setOriginToCurrentLocation()
+            SearchTarget.DESTINATION -> setDestinationToCurrentLocation()
+        }
+    }
+
     fun onGeocoderSearchDismissed() {
         geocoderJob?.cancel()
         _uiState.update {
