@@ -29,7 +29,8 @@ data class MapUiState(
     val triangleWeights: TriangleWeights = TriangleWeights(0.3f, 0.4f, 0.3f),
     val maxBikeSpeedMps: Float = 5.0f,
     val hillReluctance: Float = 1.0f,
-    val isSelectingOrigin: Boolean = true,
+    val longPressPoint: LatLng? = null,
+    val showContextMenu: Boolean = false,
     val preferences: TripPreferences = TripPreferences()
 )
 
@@ -61,17 +62,34 @@ class MapViewModel @Inject constructor(
         }
     }
 
-    fun onMapTap(latLng: LatLng) {
-        val warning = if (!isInCoverageArea(latLng))
+    fun onMapLongPress(latLng: LatLng) {
+        _uiState.update { it.copy(longPressPoint = latLng, showContextMenu = true) }
+    }
+
+    fun setOriginFromMenu() {
+        val point = _uiState.value.longPressPoint ?: return
+        val warning = if (!isInCoverageArea(point))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-
-        if (_uiState.value.isSelectingOrigin) {
-            _uiState.update { it.copy(origin = latLng, isSelectingOrigin = false, error = warning) }
-        } else {
-            _uiState.update { it.copy(destination = latLng, isSelectingOrigin = true, error = warning) }
+        _uiState.update { it.copy(origin = point, showContextMenu = false, longPressPoint = null, error = warning) }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
+    }
+
+    fun setDestinationFromMenu() {
+        val point = _uiState.value.longPressPoint ?: return
+        val warning = if (!isInCoverageArea(point))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+        _uiState.update { it.copy(destination = point, showContextMenu = false, longPressPoint = null, error = warning) }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
+            searchTrips()
+        }
+    }
+
+    fun dismissContextMenu() {
+        _uiState.update { it.copy(showContextMenu = false, longPressPoint = null) }
     }
 
     fun onSliderChanged(value: Float) {
@@ -138,7 +156,6 @@ class MapViewModel @Inject constructor(
                 destination = null,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
-                isSelectingOrigin = true,
                 error = null
             )
         }

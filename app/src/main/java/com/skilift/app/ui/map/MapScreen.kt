@@ -4,7 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,6 +32,8 @@ import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -48,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -55,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.core.content.ContextCompat
@@ -67,7 +75,9 @@ import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
+import com.mapbox.maps.MapboxMap
 import com.mapbox.maps.plugin.gestures.OnMapClickListener
+import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
@@ -275,6 +285,12 @@ fun MapScreen(
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val fabHeightPx = remember { mutableIntStateOf(0) }
             val fabBottomPadding = statusBarPadding + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
+
+            // Screen-pixel position for the context menu anchor
+            var menuScreenX by remember { mutableStateOf(0f) }
+            var menuScreenY by remember { mutableStateOf(0f) }
+            var mapboxMap by remember { mutableStateOf<MapboxMap?>(null) }
+
             MapboxMap(
                 modifier = Modifier.fillMaxSize(),
                 mapViewportState = mapViewportState,
@@ -295,13 +311,28 @@ fun MapScreen(
                     )
                 },
                 style = { MapboxStandardStyle() },
-                onMapClickListener = OnMapClickListener { point ->
-                    viewModel.onMapTap(
+                onMapClickListener = OnMapClickListener {
+                    if (uiState.showContextMenu) {
+                        viewModel.dismissContextMenu()
+                    }
+                    true
+                },
+                onMapLongClickListener = OnMapLongClickListener { point ->
+                    mapboxMap?.let { map ->
+                        val screenCoord = map.pixelForCoordinate(point)
+                        menuScreenX = screenCoord.x.toFloat()
+                        menuScreenY = screenCoord.y.toFloat()
+                    }
+                    viewModel.onMapLongPress(
                         com.skilift.app.domain.model.LatLng(point.latitude(), point.longitude())
                     )
                     true
                 }
             ) {
+                // Store MapboxMap reference for coordinate conversion
+                MapEffect(Unit) { mapView ->
+                    mapboxMap = mapView.mapboxMap
+                }
                 // Location puck
                 MapEffect(hasLocationPermission.value) { mapView ->
                     mapView.location.updateSettings {
@@ -387,6 +418,43 @@ fun MapScreen(
                                 lineWidth = if (leg.mode == TransportMode.BICYCLE || leg.mode == TransportMode.WALK) 3.0 else 5.0
                             }
                         }
+                    }
+                }
+            }
+
+            // Long-press context menu
+            if (uiState.showContextMenu) {
+                Box(
+                    modifier = Modifier.offset {
+                        IntOffset(menuScreenX.toInt(), menuScreenY.toInt())
+                    }
+                ) {
+                    DropdownMenu(
+                        expanded = true,
+                        onDismissRequest = { viewModel.dismissContextMenu() }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Set as Start") },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color(0xFF00796B), CircleShape)
+                                )
+                            },
+                            onClick = { viewModel.setOriginFromMenu() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Set as End") },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color(0xFFD32F2F), CircleShape)
+                                )
+                            },
+                            onClick = { viewModel.setDestinationFromMenu() }
+                        )
                     }
                 }
             }
