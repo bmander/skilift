@@ -377,8 +377,10 @@ fun MapScreen(
                     query = uiState.geocoderQuery,
                     results = uiState.geocoderResults,
                     isLoading = uiState.isGeocoderLoading,
+                    userLocationAvailable = uiState.userLocation != null,
                     onQueryChanged = { viewModel.onGeocoderQueryChanged(it) },
                     onResultSelected = { viewModel.onGeocoderResultSelected(it) },
+                    onCurrentLocationSelected = { viewModel.onCurrentLocationSelectedFromSearch() },
                     onDismiss = { viewModel.onGeocoderSearchDismissed() }
                 )
             }

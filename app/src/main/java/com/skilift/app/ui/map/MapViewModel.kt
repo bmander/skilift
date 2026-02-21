@@ -102,24 +102,14 @@ class MapViewModel @Inject constructor(
 
     fun setOriginFromMenu() {
         val point = _uiState.value.longPressPoint ?: return
-        val warning = if (!isInCoverageArea(point))
-            "This point is outside the data coverage area. Routing may be unavailable."
-        else null
-        _uiState.update { it.copy(origin = point, originName = null, originIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
-        if (_uiState.value.origin != null && _uiState.value.destination != null) {
-            searchTrips()
-        }
+        dismissContextMenu()
+        setTerminus(SearchTarget.ORIGIN, point, name = null, isCurrentLocation = false)
     }
 
     fun setDestinationFromMenu() {
         val point = _uiState.value.longPressPoint ?: return
-        val warning = if (!isInCoverageArea(point))
-            "This point is outside the data coverage area. Routing may be unavailable."
-        else null
-        _uiState.update { it.copy(destination = point, destinationName = null, destinationIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
-        if (_uiState.value.origin != null && _uiState.value.destination != null) {
-            searchTrips()
-        }
+        dismissContextMenu()
+        setTerminus(SearchTarget.DESTINATION, point, name = null, isCurrentLocation = false)
     }
 
     fun dismissContextMenu() {
@@ -143,24 +133,14 @@ class MapViewModel @Inject constructor(
 
     fun setOriginToCurrentLocation() {
         val location = _uiState.value.userLocation ?: return
-        val warning = if (!isInCoverageArea(location))
-            "This point is outside the data coverage area. Routing may be unavailable."
-        else null
-        _uiState.update { it.copy(origin = location, originName = null, originIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
-        if (_uiState.value.origin != null && _uiState.value.destination != null) {
-            searchTrips()
-        }
+        dismissContextMenu()
+        setTerminus(SearchTarget.ORIGIN, location, name = null, isCurrentLocation = true)
     }
 
     fun setDestinationToCurrentLocation() {
         val location = _uiState.value.userLocation ?: return
-        val warning = if (!isInCoverageArea(location))
-            "This point is outside the data coverage area. Routing may be unavailable."
-        else null
-        _uiState.update { it.copy(destination = location, destinationName = null, destinationIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
-        if (_uiState.value.origin != null && _uiState.value.destination != null) {
-            searchTrips()
-        }
+        dismissContextMenu()
+        setTerminus(SearchTarget.DESTINATION, location, name = null, isCurrentLocation = true)
     }
 
     fun onSliderChanged(value: Float) {
@@ -329,34 +309,15 @@ class MapViewModel @Inject constructor(
 
     fun onGeocoderResultSelected(result: GeocodingResult) {
         val target = _uiState.value.geocoderSearchTarget ?: return
-        val warning = if (!isInCoverageArea(result.location))
-            "This point is outside the data coverage area. Routing may be unavailable."
-        else null
-        when (target) {
-            SearchTarget.ORIGIN -> _uiState.update {
-                it.copy(
-                    origin = result.location,
-                    originName = result.name,
-                    originIsCurrentLocation = false,
-                    showGeocoderSearch = false,
-                    geocoderSearchTarget = null,
-                    error = warning
-                )
-            }
-            SearchTarget.DESTINATION -> _uiState.update {
-                it.copy(
-                    destination = result.location,
-                    destinationName = result.name,
-                    destinationIsCurrentLocation = false,
-                    showGeocoderSearch = false,
-                    geocoderSearchTarget = null,
-                    error = warning
-                )
-            }
-        }
-        if (_uiState.value.origin != null && _uiState.value.destination != null) {
-            searchTrips()
-        }
+        onGeocoderSearchDismissed()
+        setTerminus(target, result.location, name = result.name, isCurrentLocation = false)
+    }
+
+    fun onCurrentLocationSelectedFromSearch() {
+        val target = _uiState.value.geocoderSearchTarget ?: return
+        val location = _uiState.value.userLocation ?: return
+        onGeocoderSearchDismissed()
+        setTerminus(target, location, name = null, isCurrentLocation = true)
     }
 
     fun onGeocoderSearchDismissed() {
@@ -369,6 +330,36 @@ class MapViewModel @Inject constructor(
                 geocoderResults = emptyList(),
                 isGeocoderLoading = false
             )
+        }
+    }
+
+    private fun setTerminus(
+        target: SearchTarget,
+        location: LatLng,
+        name: String?,
+        isCurrentLocation: Boolean
+    ) {
+        val warning = if (!isInCoverageArea(location))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+        _uiState.update {
+            when (target) {
+                SearchTarget.ORIGIN -> it.copy(
+                    origin = location,
+                    originName = name,
+                    originIsCurrentLocation = isCurrentLocation,
+                    error = warning
+                )
+                SearchTarget.DESTINATION -> it.copy(
+                    destination = location,
+                    destinationName = name,
+                    destinationIsCurrentLocation = isCurrentLocation,
+                    error = warning
+                )
+            }
+        }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
+            searchTrips()
         }
     }
 
