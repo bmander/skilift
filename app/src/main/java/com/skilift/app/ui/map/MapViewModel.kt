@@ -11,6 +11,7 @@ import com.skilift.app.domain.model.TripPreferences
 import com.skilift.app.ui.map.components.TriangleWeights
 import com.skilift.app.BuildConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +44,8 @@ class MapViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
+
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -169,7 +172,8 @@ class MapViewModel @Inject constructor(
 
         val (reluctance, boardCost) = mapSliderToOtpPreferences(balance)
 
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             tripRepository.planTrip(
