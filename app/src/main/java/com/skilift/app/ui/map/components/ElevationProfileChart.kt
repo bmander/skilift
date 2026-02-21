@@ -23,28 +23,24 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.skilift.app.domain.model.ElevationPoint
-import com.skilift.app.domain.model.Itinerary
-import com.skilift.app.domain.model.TransportMode
+import com.skilift.app.domain.model.Leg
 import java.util.Locale
 
-private const val GAP_DP = 12f
 private const val METERS_PER_FOOT = 0.3048
 private const val METERS_PER_MILE = 1609.344
 
 @Composable
 fun ElevationProfileChart(
-    itinerary: Itinerary,
+    leg: Leg,
     modifier: Modifier = Modifier
 ) {
-    val segments = buildBikeSegments(itinerary)
-    if (segments.isEmpty()) return
+    val points = leg.elevationProfile
+    if (points.isEmpty()) return
 
-    val allPoints = segments.flatMap { it }
-    val minElev = allPoints.minOf { it.elevationMeters }
-    val maxElev = allPoints.maxOf { it.elevationMeters }
+    val minElev = points.minOf { it.elevationMeters }
+    val maxElev = points.maxOf { it.elevationMeters }
     val elevRange = (maxElev - minElev).coerceAtLeast(1.0)
-    val totalBikeDist = segments.sumOf { it.last().distanceMeters }
+    val totalDist = points.last().distanceMeters
 
     val green = Color(0xFF4CAF50)
     val greenFill = green.copy(alpha = 0.30f)
@@ -53,6 +49,7 @@ fun ElevationProfileChart(
     val useImperial = isImperialLocale()
     val minLabel = formatElevation(minElev, useImperial)
     val maxLabel = formatElevation(maxElev, useImperial)
+    val distLabel = formatDistance(totalDist, useImperial)
     val textMeasurer = rememberTextMeasurer()
 
     Card(
@@ -90,10 +87,6 @@ fun ElevationProfileChart(
 
                 if (chartWidth <= 0f || chartHeight <= 0f) return@Canvas
 
-                val gapCount = (segments.size - 1).coerceAtLeast(0)
-                val totalGapPx = gapCount * GAP_DP.dp.toPx()
-                val drawableWidth = (chartWidth - totalGapPx).coerceAtLeast(1f)
-
                 val distLabelStyle = TextStyle(
                     fontSize = 10.sp,
                     color = labelColor
@@ -102,64 +95,41 @@ fun ElevationProfileChart(
                 fun yFor(elev: Double): Float =
                     (chartHeight - ((elev - minElev) / elevRange * chartHeight)).toFloat()
 
-                var xOffset = leftPad
-                for ((segIndex, segment) in segments.withIndex()) {
-                    val segDist = segment.last().distanceMeters
-                    val segWidthPx = if (totalBikeDist > 0)
-                        (segDist / totalBikeDist * drawableWidth).toFloat()
-                    else drawableWidth
+                fun xFor(dist: Double): Float =
+                    leftPad + if (totalDist > 0) (dist / totalDist * chartWidth).toFloat() else 0f
 
-                    fun xFor(dist: Double): Float =
-                        xOffset + if (segDist > 0) (dist / segDist * segWidthPx).toFloat() else 0f
-
-                    val linePath = Path().apply {
-                        moveTo(xFor(segment.first().distanceMeters), yFor(segment.first().elevationMeters))
-                        for (i in 1 until segment.size) {
-                            lineTo(xFor(segment[i].distanceMeters), yFor(segment[i].elevationMeters))
-                        }
-                    }
-
-                    val fillPath = Path().apply {
-                        moveTo(xFor(segment.first().distanceMeters), yFor(segment.first().elevationMeters))
-                        for (i in 1 until segment.size) {
-                            lineTo(xFor(segment[i].distanceMeters), yFor(segment[i].elevationMeters))
-                        }
-                        lineTo(xFor(segment.last().distanceMeters), chartHeight)
-                        lineTo(xFor(segment.first().distanceMeters), chartHeight)
-                        close()
-                    }
-
-                    drawPath(fillPath, greenFill, style = Fill)
-                    drawPath(linePath, green, style = Stroke(width = 2.dp.toPx()))
-
-                    val segLabel = formatDistance(segDist, useImperial)
-                    val measuredLabel = textMeasurer.measure(segLabel, distLabelStyle)
-                    drawText(
-                        textLayoutResult = measuredLabel,
-                        topLeft = androidx.compose.ui.geometry.Offset(
-                            x = xOffset + segWidthPx - measuredLabel.size.width,
-                            y = chartHeight + 2.dp.toPx()
-                        )
-                    )
-
-                    xOffset += segWidthPx
-                    if (segIndex < segments.size - 1) {
-                        xOffset += GAP_DP.dp.toPx()
+                val linePath = Path().apply {
+                    moveTo(xFor(points.first().distanceMeters), yFor(points.first().elevationMeters))
+                    for (i in 1 until points.size) {
+                        lineTo(xFor(points[i].distanceMeters), yFor(points[i].elevationMeters))
                     }
                 }
+
+                val fillPath = Path().apply {
+                    moveTo(xFor(points.first().distanceMeters), yFor(points.first().elevationMeters))
+                    for (i in 1 until points.size) {
+                        lineTo(xFor(points[i].distanceMeters), yFor(points[i].elevationMeters))
+                    }
+                    lineTo(xFor(points.last().distanceMeters), chartHeight)
+                    lineTo(xFor(points.first().distanceMeters), chartHeight)
+                    close()
+                }
+
+                drawPath(fillPath, greenFill, style = Fill)
+                drawPath(linePath, green, style = Stroke(width = 2.dp.toPx()))
+
+                val measuredLabel = textMeasurer.measure(distLabel, distLabelStyle)
+                drawText(
+                    textLayoutResult = measuredLabel,
+                    topLeft = androidx.compose.ui.geometry.Offset(
+                        x = leftPad + chartWidth - measuredLabel.size.width,
+                        y = chartHeight + 2.dp.toPx()
+                    )
+                )
             }
         }
     }
 }
-
-private fun buildBikeSegments(itinerary: Itinerary): List<List<ElevationPoint>> {
-    return itinerary.legs
-        .filter { it.mode == TransportMode.BICYCLE && it.elevationProfile.isNotEmpty() }
-        .map { it.elevationProfile }
-}
-
-fun Itinerary.hasBikingElevationData(): Boolean =
-    legs.any { it.mode == TransportMode.BICYCLE && it.elevationProfile.isNotEmpty() }
 
 @Composable
 private fun isImperialLocale(): Boolean {
