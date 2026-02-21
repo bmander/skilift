@@ -190,7 +190,7 @@ fun ElevationProfileChart(
                 if (!touchX.isNaN()) {
                     val clampedX = touchX.coerceIn(leftPad, leftPad + chartWidth)
                     drawLine(
-                        color = Color.White,
+                        color = Color.DarkGray,
                         start = Offset(clampedX, 0f),
                         end = Offset(clampedX, chartHeight),
                         strokeWidth = 2.dp.toPx()
