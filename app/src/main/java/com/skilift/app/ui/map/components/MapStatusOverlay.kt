@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.skilift.app.domain.model.Itinerary
+import com.skilift.app.domain.model.TransportMode
 
 @Composable
 fun MapStatusOverlay(
@@ -20,6 +21,7 @@ fun MapStatusOverlay(
     error: String?,
     itineraries: List<Itinerary>,
     selectedItineraryIndex: Int,
+    selectedLegIndex: Int?,
     onSelectItinerary: (Int) -> Unit,
     onItineraryDetails: (Int) -> Unit,
     modifier: Modifier = Modifier
@@ -48,8 +50,9 @@ fun MapStatusOverlay(
 
         if (itineraries.isNotEmpty()) {
             val selectedItinerary = itineraries[selectedItineraryIndex]
-            if (selectedItinerary.hasBikingElevationData()) {
-                ElevationProfileChart(itinerary = selectedItinerary)
+            val selectedLeg = selectedLegIndex?.let { selectedItinerary.legs.getOrNull(it) }
+            if (selectedLeg != null && selectedLeg.mode == TransportMode.BICYCLE && selectedLeg.elevationProfile.isNotEmpty()) {
+                ElevationProfileChart(leg = selectedLeg)
             }
 
             ItineraryCardRow(
