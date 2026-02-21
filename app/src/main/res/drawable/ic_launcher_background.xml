@@ -1,4 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#1B5E20" />
-</shape>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Gradient Background -->
+    <path android:pathData="M0,0h108v108H0z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108">
+                <item android:offset="0" android:color="#FF00897B"/>
+                <item android:offset="1" android:color="#FF004D40"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Mountain Silhouette (large) -->
+    <path
+        android:pathData="M8.4,94.9 L54,33.8 L99.6,94.9 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.15"/>
+
+    <!-- Mountain Silhouette (small) -->
+    <path
+        android:pathData="M29.5,94.9 L54,59.1 L78.5,94.9 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.10"/>
+</vector>

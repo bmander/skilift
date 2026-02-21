@@ -1,0 +1,40 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg_gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00897B"/>
+      <stop offset="100%" stop-color="#004D40"/>
+    </linearGradient>
+    
+    <!-- SVG 1.1 Compatible Shadow for the main foreground elements -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dx="0" dy="12" result="offsetblur"/>
+      <feFlood flood-color="#000" flood-opacity="0.3"/>
+      <feComposite in2="offsetblur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Squircle (Material Design shape) -->
+  <rect width="512" height="512" rx="115" fill="url(#bg_gradient)"/>
+
+  <!-- Background Mountain Silhouette (Subtle, references Seattle's hills) -->
+  <path d="M40 450 L256 160 L472 450 Z" fill="white" opacity="0.15"/>
+  <path d="M140 450 L256 280 L372 450 Z" fill="white" opacity="0.10"/>
+
+  <g filter="url(#shadow)">
+    <!-- The Transit Ascent (Solid Blue Line) -->
+    <path d="M100 390 L256 130" stroke="#2196F3" stroke-width="48" stroke-linecap="round"/>
+
+    <!-- The Bike Descent (Dashed Green Line) -->
+    <path d="M256 130 L412 390" stroke="#4CAF50" stroke-width="48" stroke-linecap="round" stroke-dasharray="0.1 75"/>
+
+    <!-- Summit Node (The Transfer Point) -->
+    <circle cx="256" cy="130" r="40" fill="white"/>
+    <circle cx="256" cy="130" r="20" fill="#00796B"/>
+  </g>
+</svg>
