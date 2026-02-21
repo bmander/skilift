@@ -212,7 +212,7 @@ fun MapScreen(
                             // Convert 30px screen threshold to geographic distance
                             val tapScreen = map.pixelForCoordinate(clickPoint)
                             val offsetPoint = map.coordinateForPixel(
-                                com.mapbox.maps.ScreenCoordinate(tapScreen.x, tapScreen.y - 30.0)
+                                com.mapbox.maps.ScreenCoordinate(tapScreen.x, tapScreen.y - 60.0)
                             )
                             val thresholdDeg = Math.abs(offsetPoint.latitude() - tapLat)
                             val thresholdSq = thresholdDeg * thresholdDeg
