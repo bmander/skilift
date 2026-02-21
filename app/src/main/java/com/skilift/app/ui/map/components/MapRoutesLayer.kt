@@ -73,21 +73,21 @@ private fun MapRouteLines(itinerary: Itinerary) {
 
             // Circle at start of transit leg
             CircleAnnotation(
-                point = Point.fromLngLat(leg.from.location.longitude, leg.from.location.latitude)
+                point = Point.fromLngLat(leg.geometry.first().longitude, leg.geometry.first().latitude)
             ) {
                 circleRadius = 6.0
                 circleColor = modeUi.color
-                circleStrokeWidth = 2.0
+                circleStrokeWidth = 1.0
                 circleStrokeColor = Color.White
             }
 
             // Circle at end of transit leg
             CircleAnnotation(
-                point = Point.fromLngLat(leg.to.location.longitude, leg.to.location.latitude)
+                point = Point.fromLngLat(leg.geometry.last().longitude, leg.geometry.last().latitude)
             ) {
                 circleRadius = 6.0
                 circleColor = modeUi.color
-                circleStrokeWidth = 2.0
+                circleStrokeWidth = 1.0
                 circleStrokeColor = Color.White
             }
 
