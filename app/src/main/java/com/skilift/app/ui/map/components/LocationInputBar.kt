@@ -39,11 +39,15 @@ private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM 
 fun LocationInputBar(
     origin: LatLng?,
     destination: LatLng?,
+    originName: String? = null,
+    destinationName: String? = null,
     originIsCurrentLocation: Boolean = false,
     destinationIsCurrentLocation: Boolean = false,
     timeSelection: TimeSelection,
     onClearOrigin: () -> Unit,
     onClearDestination: () -> Unit,
+    onOriginRowClicked: () -> Unit = {},
+    onDestinationRowClicked: () -> Unit = {},
     onTimeRowClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -62,9 +66,11 @@ fun LocationInputBar(
             LocationRow(
                 color = Color(0xFF00796B),
                 latLng = origin,
+                displayName = originName,
                 isCurrentLocation = originIsCurrentLocation,
-                placeholder = "Long-press map to set start",
-                onClear = onClearOrigin
+                placeholder = "Search or long-press map",
+                onClear = onClearOrigin,
+                onRowClicked = onOriginRowClicked
             )
 
             HorizontalDivider(
@@ -76,9 +82,11 @@ fun LocationInputBar(
             LocationRow(
                 color = Color(0xFFD32F2F),
                 latLng = destination,
+                displayName = destinationName,
                 isCurrentLocation = destinationIsCurrentLocation,
-                placeholder = "Long-press map to set end",
-                onClear = onClearDestination
+                placeholder = "Search or long-press map",
+                onClear = onClearDestination,
+                onRowClicked = onDestinationRowClicked
             )
 
             HorizontalDivider(
@@ -104,9 +112,11 @@ fun LocationInputBar(
 private fun LocationRow(
     color: Color,
     latLng: LatLng?,
+    displayName: String? = null,
     isCurrentLocation: Boolean = false,
     placeholder: String,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    onRowClicked: () -> Unit = {}
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -121,11 +131,15 @@ private fun LocationRow(
         if (latLng != null) {
             InputChip(
                 selected = false,
-                onClick = {},
+                onClick = onRowClicked,
                 label = {
                     Text(
-                        if (isCurrentLocation) "Current Location"
-                        else "%.3f, %.3f".format(latLng.latitude, latLng.longitude)
+                        when {
+                            isCurrentLocation -> "Current Location"
+                            displayName != null -> displayName
+                            else -> "%.3f, %.3f".format(latLng.latitude, latLng.longitude)
+                        },
+                        maxLines = 1
                     )
                 },
                 trailingIcon = {
@@ -145,7 +159,11 @@ private fun LocationRow(
             Text(
                 text = placeholder,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                modifier = Modifier
+                    .clickable { onRowClicked() }
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
             )
         }
     }

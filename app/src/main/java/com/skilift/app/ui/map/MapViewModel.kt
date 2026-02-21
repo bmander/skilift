@@ -1,10 +1,13 @@
 package com.skilift.app.ui.map
 
+import android.app.Application
+import android.location.Geocoder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skilift.app.data.SelectedItineraryHolder
 import com.skilift.app.data.repository.PreferencesRepository
 import com.skilift.app.data.repository.TripRepository
+import com.skilift.app.domain.model.GeocodingResult
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.TimeSelection
@@ -16,17 +19,24 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+enum class SearchTarget { ORIGIN, DESTINATION }
 
 data class MapUiState(
     val origin: LatLng? = null,
     val destination: LatLng? = null,
+    val originName: String? = null,
+    val destinationName: String? = null,
     val itineraries: List<Itinerary> = emptyList(),
     val selectedItineraryIndex: Int = 0,
     val isLoading: Boolean = false,
@@ -43,20 +53,29 @@ data class MapUiState(
     val destinationIsCurrentLocation: Boolean = false,
     val isPuckMenu: Boolean = false,
     val timeSelection: TimeSelection = TimeSelection.DepartNow,
-    val showTimePicker: Boolean = false
+    val showTimePicker: Boolean = false,
+    val showGeocoderSearch: Boolean = false,
+    val geocoderSearchTarget: SearchTarget? = null,
+    val geocoderQuery: String = "",
+    val geocoderResults: List<GeocodingResult> = emptyList(),
+    val isGeocoderLoading: Boolean = false
 )
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
     private val tripRepository: TripRepository,
     private val preferencesRepository: PreferencesRepository,
-    private val selectedItineraryHolder: SelectedItineraryHolder
+    private val selectedItineraryHolder: SelectedItineraryHolder,
+    application: Application
 ) : ViewModel() {
+
+    private val geocoder = Geocoder(application)
 
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+    private var geocoderJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -85,7 +104,7 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(point))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(origin = point, originIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        _uiState.update { it.copy(origin = point, originName = null, originIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
@@ -96,7 +115,7 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(point))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(destination = point, destinationIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        _uiState.update { it.copy(destination = point, destinationName = null, destinationIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
@@ -126,7 +145,7 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(location))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(origin = location, originIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        _uiState.update { it.copy(origin = location, originName = null, originIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
@@ -137,7 +156,7 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(location))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(destination = location, destinationIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        _uiState.update { it.copy(destination = location, destinationName = null, destinationIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
@@ -204,6 +223,7 @@ class MapViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 origin = null,
+                originName = null,
                 originIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
@@ -216,6 +236,7 @@ class MapViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 destination = null,
+                destinationName = null,
                 destinationIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
@@ -242,11 +263,106 @@ class MapViewModel @Inject constructor(
             it.copy(
                 origin = null,
                 destination = null,
+                originName = null,
+                destinationName = null,
                 originIsCurrentLocation = false,
                 destinationIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
                 error = null
+            )
+        }
+    }
+
+    fun onLocationRowClicked(target: SearchTarget) {
+        _uiState.update {
+            it.copy(
+                showGeocoderSearch = true,
+                geocoderSearchTarget = target,
+                geocoderQuery = "",
+                geocoderResults = emptyList(),
+                isGeocoderLoading = false
+            )
+        }
+    }
+
+    fun onGeocoderQueryChanged(query: String) {
+        _uiState.update { it.copy(geocoderQuery = query) }
+        geocoderJob?.cancel()
+        if (query.length < 2) {
+            _uiState.update { it.copy(geocoderResults = emptyList(), isGeocoderLoading = false) }
+            return
+        }
+        geocoderJob = viewModelScope.launch {
+            delay(300)
+            _uiState.update { it.copy(isGeocoderLoading = true) }
+            val results = withContext(Dispatchers.IO) {
+                try {
+                    @Suppress("DEPRECATION")
+                    geocoder.getFromLocationName(query, 5,
+                        COVERAGE_SOUTH, COVERAGE_WEST, COVERAGE_NORTH, COVERAGE_EAST
+                    )?.map { address ->
+                        val featureName = address.featureName
+                        val displayName = if (featureName != null && featureName.toDoubleOrNull() == null) {
+                            featureName
+                        } else {
+                            query
+                        }
+                        GeocodingResult(
+                            name = displayName,
+                            address = address.getAddressLine(0),
+                            location = LatLng(address.latitude, address.longitude)
+                        )
+                    } ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+            _uiState.update { it.copy(geocoderResults = results, isGeocoderLoading = false) }
+        }
+    }
+
+    fun onGeocoderResultSelected(result: GeocodingResult) {
+        val target = _uiState.value.geocoderSearchTarget ?: return
+        val warning = if (!isInCoverageArea(result.location))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+        when (target) {
+            SearchTarget.ORIGIN -> _uiState.update {
+                it.copy(
+                    origin = result.location,
+                    originName = result.name,
+                    originIsCurrentLocation = false,
+                    showGeocoderSearch = false,
+                    geocoderSearchTarget = null,
+                    error = warning
+                )
+            }
+            SearchTarget.DESTINATION -> _uiState.update {
+                it.copy(
+                    destination = result.location,
+                    destinationName = result.name,
+                    destinationIsCurrentLocation = false,
+                    showGeocoderSearch = false,
+                    geocoderSearchTarget = null,
+                    error = warning
+                )
+            }
+        }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
+            searchTrips()
+        }
+    }
+
+    fun onGeocoderSearchDismissed() {
+        geocoderJob?.cancel()
+        _uiState.update {
+            it.copy(
+                showGeocoderSearch = false,
+                geocoderSearchTarget = null,
+                geocoderQuery = "",
+                geocoderResults = emptyList(),
+                isGeocoderLoading = false
             )
         }
     }

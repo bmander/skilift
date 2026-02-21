@@ -53,6 +53,7 @@ import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlin.math.sqrt
+import com.skilift.app.ui.map.components.GeocoderSearchOverlay
 import com.skilift.app.ui.map.components.LocationInputBar
 import com.skilift.app.ui.map.components.MapContextMenu
 import com.skilift.app.ui.map.components.MapCoverageOverlay
@@ -264,11 +265,15 @@ fun MapScreen(
             LocationInputBar(
                 origin = uiState.origin,
                 destination = uiState.destination,
+                originName = uiState.originName,
+                destinationName = uiState.destinationName,
                 originIsCurrentLocation = uiState.originIsCurrentLocation,
                 destinationIsCurrentLocation = uiState.destinationIsCurrentLocation,
                 timeSelection = uiState.timeSelection,
                 onClearOrigin = { viewModel.clearOrigin() },
                 onClearDestination = { viewModel.clearDestination() },
+                onOriginRowClicked = { viewModel.onLocationRowClicked(SearchTarget.ORIGIN) },
+                onDestinationRowClicked = { viewModel.onLocationRowClicked(SearchTarget.DESTINATION) },
                 onTimeRowClicked = { viewModel.onTimeRowClicked() },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -326,6 +331,18 @@ fun MapScreen(
                     currentSelection = uiState.timeSelection,
                     onConfirm = { viewModel.onTimeSelectionConfirmed(it) },
                     onDismiss = { viewModel.onTimePickerDismissed() }
+                )
+            }
+
+            // Geocoder search overlay
+            if (uiState.showGeocoderSearch) {
+                GeocoderSearchOverlay(
+                    query = uiState.geocoderQuery,
+                    results = uiState.geocoderResults,
+                    isLoading = uiState.isGeocoderLoading,
+                    onQueryChanged = { viewModel.onGeocoderQueryChanged(it) },
+                    onResultSelected = { viewModel.onGeocoderResultSelected(it) },
+                    onDismiss = { viewModel.onGeocoderSearchDismissed() }
                 )
             }
         }
