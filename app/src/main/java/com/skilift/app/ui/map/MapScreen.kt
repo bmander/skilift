@@ -120,27 +120,7 @@ fun MapScreen(
     // Center on current location (no animation) on first fix
     var hasInitiallyLocated by remember { mutableStateOf(false) }
 
-    // Fly to route bounds when itineraries arrive or selection changes
     val selectedItinerary = uiState.itineraries.getOrNull(uiState.selectedItineraryIndex)
-    LaunchedEffect(selectedItinerary) {
-        if (selectedItinerary != null) {
-            val allPoints = selectedItinerary.legs
-                .flatMap { it.geometry }
-                .map { Point.fromLngLat(it.longitude, it.latitude) }
-            if (allPoints.isNotEmpty()) {
-                delay(100)
-                mapViewportState.transitionToOverviewState(
-                    overviewViewportStateOptions = OverviewViewportStateOptions.Builder()
-                        .geometry(com.mapbox.geojson.MultiPoint.fromLngLats(allPoints))
-                        .padding(EdgeInsets(200.0, 100.0, 400.0, 100.0))
-                        .build(),
-                    defaultTransitionOptions = DefaultViewportTransitionOptions.Builder()
-                        .maxDurationMs(1500L)
-                        .build()
-                )
-            }
-        }
-    }
 
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
@@ -184,6 +164,29 @@ fun MapScreen(
             val inputBarHeightPx = remember { mutableIntStateOf(0) }
             val inputBarHeightDp = with(density) { inputBarHeightPx.intValue.toDp() }
             val fabBottomPadding = statusBarPadding + 8.dp + inputBarHeightDp + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
+
+            // Fly to route bounds when itineraries arrive or selection changes
+            val statusBarPx = with(density) { statusBarPadding.toPx() }
+            LaunchedEffect(selectedItinerary) {
+                if (selectedItinerary != null) {
+                    val allPoints = selectedItinerary.legs
+                        .flatMap { it.geometry }
+                        .map { Point.fromLngLat(it.longitude, it.latitude) }
+                    if (allPoints.isNotEmpty()) {
+                        delay(100)
+                        val topPad = (statusBarPx + inputBarHeightPx.intValue + 24).toDouble()
+                        mapViewportState.transitionToOverviewState(
+                            overviewViewportStateOptions = OverviewViewportStateOptions.Builder()
+                                .geometry(com.mapbox.geojson.MultiPoint.fromLngLats(allPoints))
+                                .padding(EdgeInsets(topPad, 100.0, 400.0, 100.0))
+                                .build(),
+                            defaultTransitionOptions = DefaultViewportTransitionOptions.Builder()
+                                .maxDurationMs(1500L)
+                                .build()
+                        )
+                    }
+                }
+            }
 
             var menuScreenX by remember { mutableStateOf(0f) }
             var menuScreenY by remember { mutableStateOf(0f) }
