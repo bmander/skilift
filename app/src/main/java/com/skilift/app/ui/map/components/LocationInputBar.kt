@@ -32,6 +32,8 @@ import com.skilift.app.domain.model.LatLng
 fun LocationInputBar(
     origin: LatLng?,
     destination: LatLng?,
+    originIsCurrentLocation: Boolean = false,
+    destinationIsCurrentLocation: Boolean = false,
     onClearOrigin: () -> Unit,
     onClearDestination: () -> Unit,
     modifier: Modifier = Modifier
@@ -51,6 +53,7 @@ fun LocationInputBar(
             LocationRow(
                 color = Color(0xFF00796B),
                 latLng = origin,
+                isCurrentLocation = originIsCurrentLocation,
                 placeholder = "Long-press map to set start",
                 onClear = onClearOrigin
             )
@@ -64,6 +67,7 @@ fun LocationInputBar(
             LocationRow(
                 color = Color(0xFFD32F2F),
                 latLng = destination,
+                isCurrentLocation = destinationIsCurrentLocation,
                 placeholder = "Long-press map to set end",
                 onClear = onClearDestination
             )
@@ -88,6 +92,7 @@ fun LocationInputBar(
 private fun LocationRow(
     color: Color,
     latLng: LatLng?,
+    isCurrentLocation: Boolean = false,
     placeholder: String,
     onClear: () -> Unit
 ) {
@@ -106,7 +111,10 @@ private fun LocationRow(
                 selected = false,
                 onClick = {},
                 label = {
-                    Text("%.3f, %.3f".format(latLng.latitude, latLng.longitude))
+                    Text(
+                        if (isCurrentLocation) "Current Location"
+                        else "%.3f, %.3f".format(latLng.latitude, latLng.longitude)
+                    )
                 },
                 trailingIcon = {
                     IconButton(

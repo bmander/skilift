@@ -32,7 +32,11 @@ data class MapUiState(
     val hillReluctance: Float = 1.0f,
     val longPressPoint: LatLng? = null,
     val showContextMenu: Boolean = false,
-    val preferences: TripPreferences = TripPreferences()
+    val preferences: TripPreferences = TripPreferences(),
+    val userLocation: LatLng? = null,
+    val originIsCurrentLocation: Boolean = false,
+    val destinationIsCurrentLocation: Boolean = false,
+    val isPuckMenu: Boolean = false
 )
 
 @HiltViewModel
@@ -74,7 +78,7 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(point))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(origin = point, showContextMenu = false, longPressPoint = null, error = warning) }
+        _uiState.update { it.copy(origin = point, originIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
@@ -85,14 +89,51 @@ class MapViewModel @Inject constructor(
         val warning = if (!isInCoverageArea(point))
             "This point is outside the data coverage area. Routing may be unavailable."
         else null
-        _uiState.update { it.copy(destination = point, showContextMenu = false, longPressPoint = null, error = warning) }
+        _uiState.update { it.copy(destination = point, destinationIsCurrentLocation = false, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
         if (_uiState.value.origin != null && _uiState.value.destination != null) {
             searchTrips()
         }
     }
 
     fun dismissContextMenu() {
-        _uiState.update { it.copy(showContextMenu = false, longPressPoint = null) }
+        _uiState.update { it.copy(showContextMenu = false, longPressPoint = null, isPuckMenu = false) }
+    }
+
+    fun onUserLocationChanged(latLng: LatLng) {
+        _uiState.update { state ->
+            state.copy(
+                userLocation = latLng,
+                origin = if (state.originIsCurrentLocation) latLng else state.origin,
+                destination = if (state.destinationIsCurrentLocation) latLng else state.destination
+            )
+        }
+    }
+
+    fun onPuckTapped() {
+        val location = _uiState.value.userLocation ?: return
+        _uiState.update { it.copy(longPressPoint = location, showContextMenu = true, isPuckMenu = true) }
+    }
+
+    fun setOriginToCurrentLocation() {
+        val location = _uiState.value.userLocation ?: return
+        val warning = if (!isInCoverageArea(location))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+        _uiState.update { it.copy(origin = location, originIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
+            searchTrips()
+        }
+    }
+
+    fun setDestinationToCurrentLocation() {
+        val location = _uiState.value.userLocation ?: return
+        val warning = if (!isInCoverageArea(location))
+            "This point is outside the data coverage area. Routing may be unavailable."
+        else null
+        _uiState.update { it.copy(destination = location, destinationIsCurrentLocation = true, showContextMenu = false, longPressPoint = null, isPuckMenu = false, error = warning) }
+        if (_uiState.value.origin != null && _uiState.value.destination != null) {
+            searchTrips()
+        }
     }
 
     fun onSliderChanged(value: Float) {
@@ -156,6 +197,7 @@ class MapViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 origin = null,
+                originIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
                 error = null
@@ -167,6 +209,7 @@ class MapViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 destination = null,
+                destinationIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
                 error = null
@@ -179,6 +222,8 @@ class MapViewModel @Inject constructor(
             it.copy(
                 origin = null,
                 destination = null,
+                originIsCurrentLocation = false,
+                destinationIsCurrentLocation = false,
                 itineraries = emptyList(),
                 selectedItineraryIndex = 0,
                 error = null

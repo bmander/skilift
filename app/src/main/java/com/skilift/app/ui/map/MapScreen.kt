@@ -79,6 +79,7 @@ import com.mapbox.maps.MapboxMap
 import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
+import kotlin.math.sqrt
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.BikeTriangleWidget
@@ -314,9 +315,28 @@ fun MapScreen(
                     )
                 },
                 style = { MapboxStandardStyle() },
-                onMapClickListener = OnMapClickListener {
+                onMapClickListener = OnMapClickListener { clickPoint ->
                     if (uiState.showContextMenu) {
                         viewModel.dismissContextMenu()
+                    } else {
+                        // Check if tap is near the user's location puck
+                        val userLoc = uiState.userLocation
+                        if (userLoc != null && mapboxMap != null) {
+                            val map = mapboxMap!!
+                            val puckScreen = map.pixelForCoordinate(
+                                Point.fromLngLat(userLoc.longitude, userLoc.latitude)
+                            )
+                            val tapScreen = map.pixelForCoordinate(clickPoint)
+                            val dx = tapScreen.x - puckScreen.x
+                            val dy = tapScreen.y - puckScreen.y
+                            val dist = sqrt(dx * dx + dy * dy)
+                            if (dist < 40.0) {
+                                menuScreenX = puckScreen.x.toFloat()
+                                menuScreenY = puckScreen.y.toFloat()
+                                viewModel.onPuckTapped()
+                                return@OnMapClickListener true
+                            }
+                        }
                     }
                     true
                 },
@@ -341,6 +361,17 @@ fun MapScreen(
                     mapView.location.updateSettings {
                         enabled = hasLocationPermission.value
                         pulsingEnabled = hasLocationPermission.value
+                    }
+                }
+
+                // Track user location changes
+                MapEffect(hasLocationPermission.value) { mapView ->
+                    if (hasLocationPermission.value) {
+                        mapView.location.addOnIndicatorPositionChangedListener { point ->
+                            viewModel.onUserLocationChanged(
+                                com.skilift.app.domain.model.LatLng(point.latitude(), point.longitude())
+                            )
+                        }
                     }
                 }
 
@@ -383,27 +414,31 @@ fun MapScreen(
                     lineWidth = 1.5
                 }
 
-                // Origin marker
-                uiState.origin?.let { origin ->
-                    CircleAnnotation(
-                        point = Point.fromLngLat(origin.longitude, origin.latitude)
-                    ) {
-                        circleRadius = 10.0
-                        circleColor = Color(0xFF00796B)
-                        circleStrokeWidth = 2.0
-                        circleStrokeColor = Color.White
+                // Origin marker (skip when using current location — puck already shows it)
+                if (!uiState.originIsCurrentLocation) {
+                    uiState.origin?.let { origin ->
+                        CircleAnnotation(
+                            point = Point.fromLngLat(origin.longitude, origin.latitude)
+                        ) {
+                            circleRadius = 10.0
+                            circleColor = Color(0xFF00796B)
+                            circleStrokeWidth = 2.0
+                            circleStrokeColor = Color.White
+                        }
                     }
                 }
 
-                // Destination marker
-                uiState.destination?.let { dest ->
-                    CircleAnnotation(
-                        point = Point.fromLngLat(dest.longitude, dest.latitude)
-                    ) {
-                        circleRadius = 10.0
-                        circleColor = Color(0xFFD32F2F)
-                        circleStrokeWidth = 2.0
-                        circleStrokeColor = Color.White
+                // Destination marker (skip when using current location)
+                if (!uiState.destinationIsCurrentLocation) {
+                    uiState.destination?.let { dest ->
+                        CircleAnnotation(
+                            point = Point.fromLngLat(dest.longitude, dest.latitude)
+                        ) {
+                            circleRadius = 10.0
+                            circleColor = Color(0xFFD32F2F)
+                            circleStrokeWidth = 2.0
+                            circleStrokeColor = Color.White
+                        }
                     }
                 }
 
@@ -445,7 +480,10 @@ fun MapScreen(
                                         .background(Color(0xFF00796B), CircleShape)
                                 )
                             },
-                            onClick = { viewModel.setOriginFromMenu() }
+                            onClick = {
+                                if (uiState.isPuckMenu) viewModel.setOriginToCurrentLocation()
+                                else viewModel.setOriginFromMenu()
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("Set as End") },
@@ -456,7 +494,10 @@ fun MapScreen(
                                         .background(Color(0xFFD32F2F), CircleShape)
                                 )
                             },
-                            onClick = { viewModel.setDestinationFromMenu() }
+                            onClick = {
+                                if (uiState.isPuckMenu) viewModel.setDestinationToCurrentLocation()
+                                else viewModel.setDestinationFromMenu()
+                            }
                         )
                     }
                 }
@@ -466,6 +507,8 @@ fun MapScreen(
             LocationInputBar(
                 origin = uiState.origin,
                 destination = uiState.destination,
+                originIsCurrentLocation = uiState.originIsCurrentLocation,
+                destinationIsCurrentLocation = uiState.destinationIsCurrentLocation,
                 onClearOrigin = { viewModel.clearOrigin() },
                 onClearDestination = { viewModel.clearDestination() },
                 modifier = Modifier
