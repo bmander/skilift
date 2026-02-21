@@ -21,6 +21,7 @@
       "source": "file:///var/opentripplanner/seattle-dem.tif"
     }
   ],
+  "distanceBetweenElevationSamples": 30,
   "multiThreadElevationCalculations": true,
   "writeCachedElevations": true,
   "readCachedElevations": true,
