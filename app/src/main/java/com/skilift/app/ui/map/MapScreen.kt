@@ -53,6 +53,7 @@ import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlin.math.sqrt
+import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.MapCameraEffects
 import com.skilift.app.ui.map.components.GeocoderSearchOverlay
@@ -166,6 +167,7 @@ fun MapScreen(
                 topInsetPx = topInsetPx.toDouble(),
             )
 
+            var elevationCursorPosition by remember { mutableStateOf<LatLng?>(null) }
             var menuScreenX by remember { mutableStateOf(0f) }
             var menuScreenY by remember { mutableStateOf(0f) }
             var mapboxMap by remember { mutableStateOf<MapboxMap?>(null) }
@@ -289,7 +291,8 @@ fun MapScreen(
                     origin = uiState.origin,
                     destination = uiState.destination,
                     originIsCurrentLocation = uiState.originIsCurrentLocation,
-                    destinationIsCurrentLocation = uiState.destinationIsCurrentLocation
+                    destinationIsCurrentLocation = uiState.destinationIsCurrentLocation,
+                    elevationCursorPosition = elevationCursorPosition
                 )
                 MapRoutesLayer(
                     itineraries = uiState.itineraries,
@@ -370,6 +373,7 @@ fun MapScreen(
                 selectedItineraryIndex = uiState.selectedItineraryIndex,
                 selectedLegIndex = uiState.selectedLegIndex,
                 onSelectItinerary = { viewModel.selectItinerary(it) },
+                onElevationPositionSelected = { elevationCursorPosition = it },
                 onItineraryDetails = {
                     viewModel.prepareForDetails(it)
                     onItinerarySelected(it)
