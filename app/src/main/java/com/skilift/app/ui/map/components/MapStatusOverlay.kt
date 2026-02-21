@@ -24,6 +24,7 @@ fun MapStatusOverlay(
     selectedLegIndex: Int?,
     onSelectItinerary: (Int) -> Unit,
     onItineraryDetails: (Int) -> Unit,
+    onElevationPositionSelected: (Float?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -52,7 +53,10 @@ fun MapStatusOverlay(
             val selectedItinerary = itineraries[selectedItineraryIndex]
             val selectedLeg = selectedLegIndex?.let { selectedItinerary.legs.getOrNull(it) }
             if (selectedLeg != null && selectedLeg.mode == TransportMode.BICYCLE && selectedLeg.elevationProfile.isNotEmpty()) {
-                ElevationProfileChart(leg = selectedLeg)
+                ElevationProfileChart(
+                    leg = selectedLeg,
+                    onFractionSelected = onElevationPositionSelected
+                )
             }
 
             ItineraryCardRow(
