@@ -200,7 +200,6 @@ fun MapScreen(
                                 return@OnMapClickListener true
                             }
                         }
-
                         // Check if tap is near a bike route segment
                         // Uses geographic distance to avoid expensive per-point
                         // screen coordinate conversions (only 2 projection calls total)
@@ -239,7 +238,6 @@ fun MapScreen(
                                     }
                                 }
                             }
-
                             viewModel.selectLeg(if (closestDistSq <= thresholdSq) closestLegIndex else null)
                         }
                     }
