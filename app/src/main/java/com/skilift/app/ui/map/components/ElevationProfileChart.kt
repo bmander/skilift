@@ -49,17 +49,12 @@ fun ElevationProfileChart(
     val points = leg.elevationProfile
     if (points.isEmpty()) return
 
-    val minElev = points.minOf { it.elevationMeters }
-    val maxElev = points.maxOf { it.elevationMeters }
-    val elevRange = (maxElev - minElev).coerceAtLeast(1.0)
     val totalDist = points.last().distanceMeters
 
     val greenFill = BikeGreen.copy(alpha = 0.30f)
     val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
 
     val useImperial = isImperialLocale()
-    val minLabel = formatElevation(minElev, useImperial)
-    val maxLabel = formatElevation(maxElev, useImperial)
     val textMeasurer = rememberTextMeasurer()
 
     // Touch position tracked as raw x pixel within the Canvas; Float.NaN means no touch
@@ -67,6 +62,18 @@ fun ElevationProfileChart(
     // Zoom level (1 = full view) and viewport start as fraction of total distance
     var zoom by remember(leg) { mutableFloatStateOf(1f) }
     var viewStartFraction by remember(leg) { mutableFloatStateOf(0f) }
+
+    // Compute visible elevation range for auto-scaling the vertical axis
+    val windowSize = 1f / zoom
+    val viewEnd = (viewStartFraction + windowSize).coerceAtMost(1f).toDouble()
+    val viewStart = viewStartFraction.toDouble()
+    val visibleElev = visibleElevationRange(points, totalDist, viewStart, viewEnd)
+    val visMinElev = visibleElev.first
+    val visMaxElev = visibleElev.second
+    val visElevRange = (visMaxElev - visMinElev).coerceAtLeast(1.0)
+
+    val minLabel = formatElevation(visMinElev, useImperial)
+    val maxLabel = formatElevation(visMaxElev, useImperial)
 
     Card(
         modifier = modifier
@@ -196,19 +203,16 @@ fun ElevationProfileChart(
 
                 if (chartWidth <= 0f || chartHeight <= 0f) return@Canvas
 
-                val windowSize = 1f / zoom
-                val viewStart = viewStartFraction.toDouble()
-
                 val distLabelStyle = TextStyle(
                     fontSize = 10.sp,
                     color = labelColor
                 )
 
                 fun yFor(elev: Double): Float =
-                    (chartHeight - ((elev - minElev) / elevRange * chartHeight)).toFloat()
+                    (chartHeight - ((elev - visMinElev) / visElevRange * chartHeight)).toFloat()
 
                 fun xFor(distFraction: Double): Float {
-                    val normalized = ((distFraction - viewStart) / windowSize).toFloat()
+                    val normalized = ((distFraction - viewStart) / windowSize.toDouble()).toFloat()
                     return leftPad + normalized * chartWidth
                 }
 
@@ -258,8 +262,7 @@ fun ElevationProfileChart(
                 }
 
                 // Distance label at visible end
-                val viewEnd = (viewStartFraction + windowSize).coerceAtMost(1f)
-                val endDist = viewEnd.toDouble() * totalDist
+                val endDist = viewEnd * totalDist
                 val endDistLabel = formatDistance(endDist, useImperial)
                 val measuredEndLabel = textMeasurer.measure(endDistLabel, distLabelStyle)
                 drawText(
@@ -272,7 +275,7 @@ fun ElevationProfileChart(
 
                 // Distance label at visible start when zoomed in
                 if (zoom > 1.01f) {
-                    val startDist = viewStartFraction.coerceAtLeast(0f).toDouble() * totalDist
+                    val startDist = viewStart * totalDist
                     val startDistLabel = formatDistance(startDist, useImperial)
                     val measuredStartLabel = textMeasurer.measure(startDistLabel, distLabelStyle)
                     drawText(
@@ -286,6 +289,55 @@ fun ElevationProfileChart(
             }
         }
     }
+}
+
+/** Compute min/max elevation for points within the visible viewport, interpolating at edges. */
+private fun visibleElevationRange(
+    points: List<com.skilift.app.domain.model.ElevationPoint>,
+    totalDist: Double,
+    viewStart: Double,
+    viewEnd: Double
+): Pair<Double, Double> {
+    var min = Double.MAX_VALUE
+    var max = Double.MIN_VALUE
+
+    fun consider(elev: Double) {
+        if (elev < min) min = elev
+        if (elev > max) max = elev
+    }
+
+    // Interpolate elevation at a given distance fraction
+    fun elevAtFraction(f: Double): Double {
+        val dist = f * totalDist
+        val idx = points.indexOfLast { it.distanceMeters <= dist }
+        if (idx < 0) return points.first().elevationMeters
+        if (idx >= points.size - 1) return points.last().elevationMeters
+        val a = points[idx]
+        val b = points[idx + 1]
+        val segLen = b.distanceMeters - a.distanceMeters
+        if (segLen <= 0) return a.elevationMeters
+        val t = (dist - a.distanceMeters) / segLen
+        return a.elevationMeters + t * (b.elevationMeters - a.elevationMeters)
+    }
+
+    // Include interpolated elevation at viewport edges
+    consider(elevAtFraction(viewStart))
+    consider(elevAtFraction(viewEnd))
+
+    // Include all points within the visible range
+    for (pt in points) {
+        val f = pt.distanceMeters / totalDist
+        if (f in viewStart..viewEnd) {
+            consider(pt.elevationMeters)
+        }
+    }
+
+    if (min > max) {
+        // Fallback: use global range
+        min = points.minOf { it.elevationMeters }
+        max = points.maxOf { it.elevationMeters }
+    }
+    return min to max
 }
 
 @Composable
