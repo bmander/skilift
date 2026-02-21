@@ -54,6 +54,7 @@ import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlin.math.sqrt
 import com.skilift.app.domain.model.TransportMode
+import com.skilift.app.ui.map.components.MapCameraEffects
 import com.skilift.app.ui.map.components.GeocoderSearchOverlay
 import com.skilift.app.ui.map.components.LocationInputBar
 import com.skilift.app.ui.map.components.MapContextMenu
@@ -112,6 +113,8 @@ fun MapScreen(
         }
     }
 
+    val selectedItinerary = uiState.itineraries.getOrNull(uiState.selectedItineraryIndex)
+
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         sheetPeekHeight = 0.dp,
@@ -154,6 +157,14 @@ fun MapScreen(
             val inputBarHeightPx = remember { mutableIntStateOf(0) }
             val inputBarHeightDp = with(density) { inputBarHeightPx.intValue.toDp() }
             val fabBottomPadding = statusBarPadding + 8.dp + inputBarHeightDp + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
+
+            val topInsetPx = with(density) { (statusBarPadding + 8.dp).toPx() } + inputBarHeightPx.intValue
+            MapCameraEffects(
+                mapViewportState = mapViewportState,
+                userLocation = uiState.userLocation,
+                selectedItinerary = selectedItinerary,
+                topInsetPx = topInsetPx.toDouble(),
+            )
 
             var menuScreenX by remember { mutableStateOf(0f) }
             var menuScreenY by remember { mutableStateOf(0f) }
@@ -273,7 +284,6 @@ fun MapScreen(
                         }
                     }
                 }
-
                 MapCoverageOverlay()
                 MapMarkersLayer(
                     origin = uiState.origin,
