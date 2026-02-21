@@ -83,6 +83,7 @@ import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.BikeTriangleWidget
 import com.skilift.app.ui.map.components.ElevationProfileChart
+import com.skilift.app.ui.map.components.LocationInputBar
 import com.skilift.app.ui.map.components.hasBikingElevationData
 import kotlinx.coroutines.launch
 
@@ -284,7 +285,9 @@ fun MapScreen(
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val fabHeightPx = remember { mutableIntStateOf(0) }
-            val fabBottomPadding = statusBarPadding + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
+            val inputBarHeightPx = remember { mutableIntStateOf(0) }
+            val inputBarHeightDp = with(density) { inputBarHeightPx.intValue.toDp() }
+            val fabBottomPadding = statusBarPadding + 8.dp + inputBarHeightDp + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
 
             // Screen-pixel position for the context menu anchor
             var menuScreenX by remember { mutableStateOf(0f) }
@@ -459,6 +462,18 @@ fun MapScreen(
                 }
             }
 
+            // Location input bar
+            LocationInputBar(
+                origin = uiState.origin,
+                destination = uiState.destination,
+                onClearOrigin = { viewModel.clearOrigin() },
+                onClearDestination = { viewModel.clearDestination() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = statusBarPadding + 8.dp)
+                    .onGloballyPositioned { inputBarHeightPx.intValue = it.size.height }
+            )
+
             // Floating settings button
             val isDrawerOpen = bottomSheetState.currentValue == SheetValue.Expanded
             FloatingActionButton(
@@ -474,7 +489,7 @@ fun MapScreen(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(
-                        top = statusBarPadding + 8.dp,
+                        top = statusBarPadding + 8.dp + inputBarHeightDp + 8.dp,
                         end = 16.dp
                     )
                     .onGloballyPositioned { fabHeightPx.intValue = it.size.height },

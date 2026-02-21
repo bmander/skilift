@@ -149,6 +149,28 @@ class MapViewModel @Inject constructor(
         selectedItineraryHolder.itinerary = _uiState.value.itineraries.getOrNull(index)
     }
 
+    fun clearOrigin() {
+        _uiState.update {
+            it.copy(
+                origin = null,
+                itineraries = emptyList(),
+                selectedItineraryIndex = 0,
+                error = null
+            )
+        }
+    }
+
+    fun clearDestination() {
+        _uiState.update {
+            it.copy(
+                destination = null,
+                itineraries = emptyList(),
+                selectedItineraryIndex = 0,
+                error = null
+            )
+        }
+    }
+
     fun clearPoints() {
         _uiState.update {
             it.copy(
