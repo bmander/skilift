@@ -202,13 +202,24 @@ fun MapScreen(
                         }
 
                         // Check if tap is near a bike route segment
+                        // Uses geographic distance to avoid expensive per-point
+                        // screen coordinate conversions (only 2 projection calls total)
                         val map = mapboxMap
                         if (map != null && uiState.itineraries.isNotEmpty()) {
                             val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
+                            val tapLat = clickPoint.latitude()
+                            val tapLng = clickPoint.longitude()
+
+                            // Convert 30px screen threshold to geographic distance
                             val tapScreen = map.pixelForCoordinate(clickPoint)
-                            val tapX = tapScreen.x
-                            val tapY = tapScreen.y
-                            val thresholdSq = 30.0 * 30.0
+                            val offsetPoint = map.coordinateForPixel(
+                                com.mapbox.maps.ScreenCoordinate(tapScreen.x, tapScreen.y - 30.0)
+                            )
+                            val thresholdDeg = Math.abs(offsetPoint.latitude() - tapLat)
+                            val thresholdSq = thresholdDeg * thresholdDeg
+
+                            // Scale longitude to match latitude units (equirectangular projection)
+                            val cosLat = Math.cos(Math.toRadians(tapLat))
 
                             var closestLegIndex: Int? = null
                             var closestDistSq = Double.MAX_VALUE
@@ -216,13 +227,11 @@ fun MapScreen(
                             selectedItinerary.legs.forEachIndexed { legIndex, leg ->
                                 if (leg.mode == TransportMode.BICYCLE && leg.geometry.size >= 2) {
                                     for (i in 0 until leg.geometry.size - 1) {
-                                        val p1 = map.pixelForCoordinate(
-                                            Point.fromLngLat(leg.geometry[i].longitude, leg.geometry[i].latitude)
+                                        val d = pointToSegmentDistSq(
+                                            tapLng * cosLat, tapLat,
+                                            leg.geometry[i].longitude * cosLat, leg.geometry[i].latitude,
+                                            leg.geometry[i + 1].longitude * cosLat, leg.geometry[i + 1].latitude
                                         )
-                                        val p2 = map.pixelForCoordinate(
-                                            Point.fromLngLat(leg.geometry[i + 1].longitude, leg.geometry[i + 1].latitude)
-                                        )
-                                        val d = pointToSegmentDistSq(tapX, tapY, p1.x, p1.y, p2.x, p2.y)
                                         if (d < closestDistSq) {
                                             closestDistSq = d
                                             closestLegIndex = legIndex
