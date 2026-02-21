@@ -15,7 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew clean assembleDebug
 ```
 
-There are no tests yet.
+## Test Commands
+
+```bash
+# Run all unit tests
+./gradlew testDebugUnitTest
+```
+
+Test libraries: JUnit 4, MockK, Kotlinx Coroutines Test, Ktor Client Mock.
 
 ## Project Overview
 
