@@ -13,6 +13,8 @@ interface TripRepository {
         triangleTimeFactor: Double = 0.3,
         triangleSafetyFactor: Double = 0.4,
         triangleFlatnessFactor: Double = 0.3,
-        hillReluctance: Double = 1.0
+        hillReluctance: Double = 1.0,
+        dateTime: String? = null,
+        arriveBy: Boolean = false
     ): Result<List<Itinerary>>
 }

@@ -1,6 +1,7 @@
 package com.skilift.app.ui.map.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.skilift.app.domain.model.LatLng
+import com.skilift.app.domain.model.TimeSelection
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, h:mm a")
 
 @Composable
 fun LocationInputBar(
@@ -34,8 +41,10 @@ fun LocationInputBar(
     destination: LatLng?,
     originIsCurrentLocation: Boolean = false,
     destinationIsCurrentLocation: Boolean = false,
+    timeSelection: TimeSelection,
     onClearOrigin: () -> Unit,
     onClearDestination: () -> Unit,
+    onTimeRowClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -77,12 +86,15 @@ fun LocationInputBar(
                 color = MaterialTheme.colorScheme.outlineVariant
             )
 
-            // Time row (placeholder)
+            // Time row
             Text(
-                text = "Depart now",
+                text = formatTimeSelection(timeSelection),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(vertical = 4.dp)
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onTimeRowClicked() }
+                    .padding(vertical = 4.dp)
             )
         }
     }
@@ -135,6 +147,22 @@ private fun LocationRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
             )
+        }
+    }
+}
+
+private fun formatTimeSelection(selection: TimeSelection): String {
+    return when (selection) {
+        is TimeSelection.DepartNow -> "Depart now"
+        is TimeSelection.DepartAt -> {
+            val zdt = Instant.ofEpochMilli(selection.epochMillis)
+                .atZone(ZoneId.systemDefault())
+            "Depart ${zdt.format(timeFormatter)}"
+        }
+        is TimeSelection.ArriveBy -> {
+            val zdt = Instant.ofEpochMilli(selection.epochMillis)
+                .atZone(ZoneId.systemDefault())
+            "Arrive ${zdt.format(timeFormatter)}"
         }
     }
 }

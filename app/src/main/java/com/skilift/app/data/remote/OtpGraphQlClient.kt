@@ -27,7 +27,9 @@ class OtpGraphQlClient @Inject constructor(
         triangleSafetyFactor: Double = 0.4,
         triangleFlatnessFactor: Double = 0.3,
         hillReluctance: Double = 1.0,
-        numItineraries: Int = 5
+        numItineraries: Int = 5,
+        dateTime: String? = null,
+        arriveBy: Boolean = false
     ): OtpPlanConnectionResponse {
         val query = buildQuery(
             originLat, originLon,
@@ -36,7 +38,9 @@ class OtpGraphQlClient @Inject constructor(
             bicycleSpeed,
             triangleTimeFactor, triangleSafetyFactor, triangleFlatnessFactor,
             hillReluctance,
-            numItineraries
+            numItineraries,
+            dateTime,
+            arriveBy
         )
 
         return httpClient.post("$baseUrl/otp/routers/default/index/graphql") {
@@ -57,8 +61,17 @@ class OtpGraphQlClient @Inject constructor(
         triangleSafetyFactor: Double,
         triangleFlatnessFactor: Double,
         hillReluctance: Double,
-        numItineraries: Int
-    ): String = """
+        numItineraries: Int,
+        dateTime: String?,
+        arriveBy: Boolean
+    ): String {
+        val dateTimeClause = when {
+            dateTime == null -> ""
+            arriveBy -> """dateTime: { latestArrival: "$dateTime" }"""
+            else -> """dateTime: { earliestDeparture: "$dateTime" }"""
+        }
+
+        return """
         {
           planConnection(
             origin: {
@@ -67,6 +80,7 @@ class OtpGraphQlClient @Inject constructor(
             destination: {
               location: { coordinate: { latitude: $destLat, longitude: $destLon } }
             }
+            $dateTimeClause
             first: $numItineraries
             modes: {
               direct: [BICYCLE]
@@ -138,6 +152,7 @@ class OtpGraphQlClient @Inject constructor(
           }
         }
     """.trimIndent()
+    }
 }
 
 @Serializable

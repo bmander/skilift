@@ -85,6 +85,7 @@ import com.skilift.app.domain.model.TransportMode
 import com.skilift.app.ui.map.components.BikeTriangleWidget
 import com.skilift.app.ui.map.components.ElevationProfileChart
 import com.skilift.app.ui.map.components.LocationInputBar
+import com.skilift.app.ui.map.components.TimePickerOverlay
 import com.skilift.app.ui.map.components.hasBikingElevationData
 import kotlinx.coroutines.launch
 
@@ -509,8 +510,10 @@ fun MapScreen(
                 destination = uiState.destination,
                 originIsCurrentLocation = uiState.originIsCurrentLocation,
                 destinationIsCurrentLocation = uiState.destinationIsCurrentLocation,
+                timeSelection = uiState.timeSelection,
                 onClearOrigin = { viewModel.clearOrigin() },
                 onClearDestination = { viewModel.clearDestination() },
+                onTimeRowClicked = { viewModel.onTimeRowClicked() },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = statusBarPadding + 8.dp)
@@ -591,6 +594,15 @@ fun MapScreen(
                         }
                     )
                 }
+            }
+
+            // Time picker overlay
+            if (uiState.showTimePicker) {
+                TimePickerOverlay(
+                    currentSelection = uiState.timeSelection,
+                    onConfirm = { viewModel.onTimeSelectionConfirmed(it) },
+                    onDismiss = { viewModel.onTimePickerDismissed() }
+                )
             }
         }
     }

@@ -7,10 +7,15 @@ import com.skilift.app.data.repository.PreferencesRepository
 import com.skilift.app.data.repository.TripRepository
 import com.skilift.app.domain.model.Itinerary
 import com.skilift.app.domain.model.LatLng
+import com.skilift.app.domain.model.TimeSelection
 import com.skilift.app.domain.model.TripPreferences
 import com.skilift.app.ui.map.components.TriangleWeights
 import com.skilift.app.BuildConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +41,9 @@ data class MapUiState(
     val userLocation: LatLng? = null,
     val originIsCurrentLocation: Boolean = false,
     val destinationIsCurrentLocation: Boolean = false,
-    val isPuckMenu: Boolean = false
+    val isPuckMenu: Boolean = false,
+    val timeSelection: TimeSelection = TimeSelection.DepartNow,
+    val showTimePicker: Boolean = false
 )
 
 @HiltViewModel
@@ -217,6 +224,19 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    fun onTimeRowClicked() {
+        _uiState.update { it.copy(showTimePicker = true) }
+    }
+
+    fun onTimePickerDismissed() {
+        _uiState.update { it.copy(showTimePicker = false) }
+    }
+
+    fun onTimeSelectionConfirmed(selection: TimeSelection) {
+        _uiState.update { it.copy(timeSelection = selection, showTimePicker = false) }
+        searchTrips()
+    }
+
     fun clearPoints() {
         _uiState.update {
             it.copy(
@@ -236,8 +256,15 @@ class MapViewModel @Inject constructor(
         val destination = _uiState.value.destination ?: return
         val balance = _uiState.value.bikeTransitBalance
         val weights = _uiState.value.triangleWeights
+        val timeSelection = _uiState.value.timeSelection
 
         val (reluctance, boardCost) = mapSliderToOtpPreferences(balance)
+
+        val (dateTime, arriveBy) = when (timeSelection) {
+            is TimeSelection.DepartNow -> null to false
+            is TimeSelection.DepartAt -> formatEpochMillis(timeSelection.epochMillis) to false
+            is TimeSelection.ArriveBy -> formatEpochMillis(timeSelection.epochMillis) to true
+        }
 
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
@@ -252,7 +279,9 @@ class MapViewModel @Inject constructor(
                 triangleTimeFactor = weights.time.toDouble(),
                 triangleSafetyFactor = weights.safety.toDouble(),
                 triangleFlatnessFactor = weights.flatness.toDouble(),
-                hillReluctance = _uiState.value.hillReluctance.toDouble()
+                hillReluctance = _uiState.value.hillReluctance.toDouble(),
+                dateTime = dateTime,
+                arriveBy = arriveBy
             ).onSuccess { itineraries ->
                 _uiState.update {
                     it.copy(
@@ -285,6 +314,14 @@ class MapViewModel @Inject constructor(
         fun isInCoverageArea(latLng: LatLng): Boolean =
             latLng.latitude in COVERAGE_SOUTH..COVERAGE_NORTH &&
                 latLng.longitude in COVERAGE_WEST..COVERAGE_EAST
+
+        fun formatEpochMillis(epochMillis: Long): String {
+            val odt = OffsetDateTime.ofInstant(
+                Instant.ofEpochMilli(epochMillis),
+                ZoneId.systemDefault()
+            )
+            return odt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        }
 
         fun mapSliderToOtpPreferences(balance: Float): Pair<Double, Int> {
             val reluctance = 5.0 - (4.5 * balance)
