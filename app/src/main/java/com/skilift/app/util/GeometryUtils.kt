@@ -50,4 +50,25 @@ object GeometryUtils {
         val dy = Math.toRadians(b.latitude - a.latitude) * EARTH_RADIUS_METERS
         return sqrt(dx * dx + dy * dy)
     }
+
+    fun pointToSegmentDistSq(
+        px: Double, py: Double,
+        x1: Double, y1: Double,
+        x2: Double, y2: Double
+    ): Double {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        if (dx == 0.0 && dy == 0.0) {
+            val ddx = px - x1
+            val ddy = py - y1
+            return ddx * ddx + ddy * ddy
+        }
+        val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        val tc = t.coerceIn(0.0, 1.0)
+        val projX = x1 + tc * dx
+        val projY = y1 + tc * dy
+        val ddx = px - projX
+        val ddy = py - projY
+        return ddx * ddx + ddy * ddy
+    }
 }

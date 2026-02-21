@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.mapbox.geojson.Point
 import com.skilift.app.ui.theme.BikeGreen
+import com.skilift.app.ui.theme.DestinationRed
+import com.skilift.app.ui.theme.TealPrimary
 import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
 import com.skilift.app.domain.model.LatLng
 
@@ -22,7 +24,7 @@ fun MapMarkersLayer(
                 point = Point.fromLngLat(point.longitude, point.latitude)
             ) {
                 circleRadius = 10.0
-                circleColor = Color(0xFF00796B)
+                circleColor = TealPrimary
                 circleStrokeWidth = 2.0
                 circleStrokeColor = Color.White
             }
@@ -36,7 +38,7 @@ fun MapMarkersLayer(
                 point = Point.fromLngLat(point.longitude, point.latitude)
             ) {
                 circleRadius = 10.0
-                circleColor = Color(0xFFD32F2F)
+                circleColor = DestinationRed
                 circleStrokeWidth = 2.0
                 circleStrokeColor = Color.White
             }
