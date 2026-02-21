@@ -1,8 +1,8 @@
 package com.skilift.app.ui.map.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
@@ -37,6 +38,7 @@ import java.util.Locale
 
 private const val METERS_PER_FOOT = 0.3048
 private const val METERS_PER_MILE = 1609.344
+private const val MAX_ZOOM = 10f
 
 @Composable
 fun ElevationProfileChart(
@@ -58,11 +60,13 @@ fun ElevationProfileChart(
     val useImperial = isImperialLocale()
     val minLabel = formatElevation(minElev, useImperial)
     val maxLabel = formatElevation(maxElev, useImperial)
-    val distLabel = formatDistance(totalDist, useImperial)
     val textMeasurer = rememberTextMeasurer()
 
     // Touch position tracked as raw x pixel within the Canvas; Float.NaN means no touch
     var touchX by remember { mutableFloatStateOf(Float.NaN) }
+    // Zoom level (1 = full view) and viewport start as fraction of total distance
+    var zoom by remember(leg) { mutableFloatStateOf(1f) }
+    var viewStartFraction by remember(leg) { mutableFloatStateOf(0f) }
 
     Card(
         modifier = modifier
@@ -95,40 +99,94 @@ fun ElevationProfileChart(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(leg) {
-                        detectDragGestures(
-                            onDrag = { change, _ ->
-                                change.consume()
-                                touchX = change.position.x
-                                val leftPad = 36.dp.toPx()
-                                val chartWidth = size.width - leftPad
-                                if (chartWidth > 0f) {
-                                    onFractionSelected(fractionAtX(change.position.x, leftPad, chartWidth))
+                        val leftPad = 36.dp.toPx()
+                        val chartWidth = size.width - leftPad
+                        if (chartWidth <= 0f) return@pointerInput
+
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+
+                            // Show cursor on initial touch
+                            touchX = down.position.x
+                            val initWindowSize = 1f / zoom
+                            val initFrac = viewStartFraction +
+                                ((down.position.x - leftPad) / chartWidth) * initWindowSize
+                            onFractionSelected(initFrac.coerceIn(0f, 1f))
+
+                            var wasTwoFinger = false
+                            var prevP0 = down.position
+                            var prevP1 = Offset.Zero
+                            var prevDist = 0f
+                            var prevPointerCount = 1
+
+                            do {
+                                val event = awaitPointerEvent()
+                                val pressed = event.changes.filter { it.pressed }
+
+                                when {
+                                    pressed.size >= 2 -> {
+                                        if (!wasTwoFinger) {
+                                            wasTwoFinger = true
+                                            touchX = Float.NaN
+                                            onFractionSelected(null)
+                                        }
+
+                                        val p0 = pressed[0].position
+                                        val p1 = pressed[1].position
+                                        val dist = (p0 - p1).getDistance()
+
+                                        if (prevPointerCount >= 2 && prevDist > 1f && dist > 1f) {
+                                            val oldCentroidX = (prevP0.x + prevP1.x) / 2f
+                                            val newCentroidX = (p0.x + p1.x) / 2f
+                                            val zoomDelta = dist / prevDist
+
+                                            // Data fraction at the old centroid
+                                            val oldWin = 1f / zoom
+                                            val dataAtCentroid = viewStartFraction +
+                                                ((oldCentroidX - leftPad) / chartWidth) * oldWin
+
+                                            val newZoom = (zoom * zoomDelta).coerceIn(1f, MAX_ZOOM)
+                                            val newWin = 1f / newZoom
+
+                                            // Keep centroid data point under the new centroid screen position
+                                            val newStart = dataAtCentroid -
+                                                ((newCentroidX - leftPad) / chartWidth) * newWin
+
+                                            zoom = newZoom
+                                            viewStartFraction = newStart.coerceIn(
+                                                0f, (1f - newWin).coerceAtLeast(0f)
+                                            )
+                                        }
+
+                                        prevP0 = p0
+                                        prevP1 = p1
+                                        prevDist = dist
+                                        prevPointerCount = pressed.size
+                                        event.changes.forEach { it.consume() }
+                                    }
+
+                                    pressed.size == 1 && !wasTwoFinger -> {
+                                        // Single-finger cursor drag
+                                        touchX = pressed[0].position.x
+                                        val ws = 1f / zoom
+                                        val frac = viewStartFraction +
+                                            ((pressed[0].position.x - leftPad) / chartWidth) * ws
+                                        onFractionSelected(frac.coerceIn(0f, 1f))
+                                        pressed[0].consume()
+                                        prevPointerCount = 1
+                                    }
+
+                                    pressed.size == 1 && wasTwoFinger -> {
+                                        // Transitioning from two fingers to one; just update tracking
+                                        prevPointerCount = 1
+                                        event.changes.forEach { it.consume() }
+                                    }
                                 }
-                            },
-                            onDragEnd = {
-                                touchX = Float.NaN
-                                onFractionSelected(null)
-                            },
-                            onDragCancel = {
-                                touchX = Float.NaN
-                                onFractionSelected(null)
-                            }
-                        )
-                    }
-                    .pointerInput(leg) {
-                        detectTapGestures(
-                            onPress = { offset ->
-                                touchX = offset.x
-                                val leftPad = 36.dp.toPx()
-                                val chartWidth = size.width - leftPad
-                                if (chartWidth > 0f) {
-                                    onFractionSelected(fractionAtX(offset.x, leftPad, chartWidth))
-                                }
-                                tryAwaitRelease()
-                                touchX = Float.NaN
-                                onFractionSelected(null)
-                            }
-                        )
+                            } while (event.changes.any { it.pressed })
+
+                            touchX = Float.NaN
+                            onFractionSelected(null)
+                        }
                     }
             ) {
                 val leftPad = 36.dp.toPx()
@@ -138,6 +196,9 @@ fun ElevationProfileChart(
 
                 if (chartWidth <= 0f || chartHeight <= 0f) return@Canvas
 
+                val windowSize = 1f / zoom
+                val viewStart = viewStartFraction.toDouble()
+
                 val distLabelStyle = TextStyle(
                     fontSize = 10.sp,
                     color = labelColor
@@ -146,56 +207,86 @@ fun ElevationProfileChart(
                 fun yFor(elev: Double): Float =
                     (chartHeight - ((elev - minElev) / elevRange * chartHeight)).toFloat()
 
-                fun xFor(dist: Double): Float =
-                    leftPad + if (totalDist > 0) (dist / totalDist * chartWidth).toFloat() else 0f
+                fun xFor(distFraction: Double): Float {
+                    val normalized = ((distFraction - viewStart) / windowSize).toFloat()
+                    return leftPad + normalized * chartWidth
+                }
 
+                // Build paths using all points; clipRect handles visibility
                 val linePath = Path().apply {
-                    moveTo(xFor(points.first().distanceMeters), yFor(points.first().elevationMeters))
+                    val firstFrac = points.first().distanceMeters / totalDist
+                    moveTo(xFor(firstFrac), yFor(points.first().elevationMeters))
                     for (i in 1 until points.size) {
-                        lineTo(xFor(points[i].distanceMeters), yFor(points[i].elevationMeters))
+                        val frac = points[i].distanceMeters / totalDist
+                        lineTo(xFor(frac), yFor(points[i].elevationMeters))
                     }
                 }
 
                 val fillPath = Path().apply {
-                    moveTo(xFor(points.first().distanceMeters), yFor(points.first().elevationMeters))
+                    val firstFrac = points.first().distanceMeters / totalDist
+                    moveTo(xFor(firstFrac), yFor(points.first().elevationMeters))
                     for (i in 1 until points.size) {
-                        lineTo(xFor(points[i].distanceMeters), yFor(points[i].elevationMeters))
+                        val frac = points[i].distanceMeters / totalDist
+                        lineTo(xFor(frac), yFor(points[i].elevationMeters))
                     }
-                    lineTo(xFor(points.last().distanceMeters), chartHeight)
-                    lineTo(xFor(points.first().distanceMeters), chartHeight)
+                    val lastFrac = points.last().distanceMeters / totalDist
+                    lineTo(xFor(lastFrac), chartHeight)
+                    lineTo(xFor(firstFrac), chartHeight)
                     close()
                 }
 
-                drawPath(fillPath, greenFill, style = Fill)
-                drawPath(linePath, BikeGreen, style = Stroke(width = 2.dp.toPx()))
+                // Clip drawing to the chart area so zoomed paths don't overflow
+                clipRect(
+                    left = leftPad,
+                    top = 0f,
+                    right = leftPad + chartWidth,
+                    bottom = chartHeight
+                ) {
+                    drawPath(fillPath, greenFill, style = Fill)
+                    drawPath(linePath, BikeGreen, style = Stroke(width = 2.dp.toPx()))
 
-                val measuredLabel = textMeasurer.measure(distLabel, distLabelStyle)
+                    // Draw vertical cursor line at touch position
+                    if (!touchX.isNaN()) {
+                        val clampedX = touchX.coerceIn(leftPad, leftPad + chartWidth)
+                        drawLine(
+                            color = Color.DarkGray,
+                            start = Offset(clampedX, 0f),
+                            end = Offset(clampedX, chartHeight),
+                            strokeWidth = 2.dp.toPx()
+                        )
+                    }
+                }
+
+                // Distance label at visible end
+                val viewEnd = (viewStartFraction + windowSize).coerceAtMost(1f)
+                val endDist = viewEnd.toDouble() * totalDist
+                val endDistLabel = formatDistance(endDist, useImperial)
+                val measuredEndLabel = textMeasurer.measure(endDistLabel, distLabelStyle)
                 drawText(
-                    textLayoutResult = measuredLabel,
+                    textLayoutResult = measuredEndLabel,
                     topLeft = Offset(
-                        x = leftPad + chartWidth - measuredLabel.size.width,
+                        x = leftPad + chartWidth - measuredEndLabel.size.width,
                         y = chartHeight + 2.dp.toPx()
                     )
                 )
 
-                // Draw vertical cursor line at touch position
-                if (!touchX.isNaN()) {
-                    val clampedX = touchX.coerceIn(leftPad, leftPad + chartWidth)
-                    drawLine(
-                        color = Color.DarkGray,
-                        start = Offset(clampedX, 0f),
-                        end = Offset(clampedX, chartHeight),
-                        strokeWidth = 2.dp.toPx()
+                // Distance label at visible start when zoomed in
+                if (zoom > 1.01f) {
+                    val startDist = viewStartFraction.coerceAtLeast(0f).toDouble() * totalDist
+                    val startDistLabel = formatDistance(startDist, useImperial)
+                    val measuredStartLabel = textMeasurer.measure(startDistLabel, distLabelStyle)
+                    drawText(
+                        textLayoutResult = measuredStartLabel,
+                        topLeft = Offset(
+                            x = leftPad,
+                            y = chartHeight + 2.dp.toPx()
+                        )
                     )
                 }
             }
         }
     }
 }
-
-/** Convert a raw x pixel to a 0.0–1.0 fraction across the chart drawing area. */
-private fun fractionAtX(x: Float, leftPad: Float, chartWidth: Float): Float =
-    ((x - leftPad) / chartWidth).coerceIn(0f, 1f)
 
 @Composable
 private fun isImperialLocale(): Boolean {
