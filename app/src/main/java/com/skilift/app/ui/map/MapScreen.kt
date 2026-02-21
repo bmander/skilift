@@ -45,7 +45,11 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
+import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.extension.compose.MapEffect
+import com.mapbox.maps.plugin.viewport.data.DefaultViewportTransitionOptions
+import com.mapbox.maps.plugin.viewport.data.OverviewViewportStateOptions
+import kotlinx.coroutines.delay
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
 import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
@@ -113,17 +117,28 @@ fun MapScreen(
         }
     }
 
+    // Center on current location (no animation) on first fix
     var hasInitiallyLocated by remember { mutableStateOf(false) }
-    LaunchedEffect(uiState.userLocation) {
-        val loc = uiState.userLocation
-        if (loc != null && !hasInitiallyLocated) {
-            mapViewportState.flyTo(
-                CameraOptions.Builder()
-                    .center(Point.fromLngLat(loc.longitude, loc.latitude))
-                    .zoom(14.0)
-                    .build()
-            )
-            hasInitiallyLocated = true
+
+    // Fly to route bounds when itineraries arrive or selection changes
+    val selectedItinerary = uiState.itineraries.getOrNull(uiState.selectedItineraryIndex)
+    LaunchedEffect(selectedItinerary) {
+        if (selectedItinerary != null) {
+            val allPoints = selectedItinerary.legs
+                .flatMap { it.geometry }
+                .map { Point.fromLngLat(it.longitude, it.latitude) }
+            if (allPoints.isNotEmpty()) {
+                delay(100)
+                mapViewportState.transitionToOverviewState(
+                    overviewViewportStateOptions = OverviewViewportStateOptions.Builder()
+                        .geometry(com.mapbox.geojson.MultiPoint.fromLngLats(allPoints))
+                        .padding(EdgeInsets(200.0, 100.0, 400.0, 100.0))
+                        .build(),
+                    defaultTransitionOptions = DefaultViewportTransitionOptions.Builder()
+                        .maxDurationMs(1500L)
+                        .build()
+                )
+            }
         }
     }
 
@@ -285,10 +300,16 @@ fun MapScreen(
                             viewModel.onUserLocationChanged(
                                 com.skilift.app.domain.model.LatLng(point.latitude(), point.longitude())
                             )
+                            if (!hasInitiallyLocated) {
+                                hasInitiallyLocated = true
+                                mapViewportState.setCameraOptions {
+                                    center(Point.fromLngLat(point.longitude(), point.latitude()))
+                                    zoom(14.0)
+                                }
+                            }
                         }
                     }
                 }
-
                 MapCoverageOverlay()
                 MapMarkersLayer(
                     origin = uiState.origin,
