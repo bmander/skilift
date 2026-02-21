@@ -214,45 +214,17 @@ fun MapScreen(
                                 return@OnMapClickListener true
                             }
                         }
-                        // Check if tap is near a bike route segment
-                        // Uses geographic distance to avoid expensive per-point
-                        // screen coordinate conversions (only 2 projection calls total)
                         val map = mapboxMap
                         if (map != null && uiState.itineraries.isNotEmpty()) {
-                            val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
-                            val tapLat = clickPoint.latitude()
-                            val tapLng = clickPoint.longitude()
-
-                            // Convert 30px screen threshold to geographic distance
+                            val itinerary = uiState.itineraries[uiState.selectedItineraryIndex]
                             val tapScreen = map.pixelForCoordinate(clickPoint)
-                            val offsetPoint = map.coordinateForPixel(
-                                com.mapbox.maps.ScreenCoordinate(tapScreen.x, tapScreen.y - 60.0)
+                            val thresholdSq = geographicThresholdSq(
+                                map, tapScreen, clickPoint.latitude(), 60.0
                             )
-                            val thresholdDeg = Math.abs(offsetPoint.latitude() - tapLat)
-                            val thresholdSq = thresholdDeg * thresholdDeg
-
-                            // Scale longitude to match latitude units (equirectangular projection)
-                            val cosLat = Math.cos(Math.toRadians(tapLat))
-
-                            var closestLegIndex: Int? = null
-                            var closestDistSq = Double.MAX_VALUE
-
-                            selectedItinerary.legs.forEachIndexed { legIndex, leg ->
-                                if (leg.mode == TransportMode.BICYCLE && leg.geometry.size >= 2) {
-                                    for (i in 0 until leg.geometry.size - 1) {
-                                        val d = pointToSegmentDistSq(
-                                            tapLng * cosLat, tapLat,
-                                            leg.geometry[i].longitude * cosLat, leg.geometry[i].latitude,
-                                            leg.geometry[i + 1].longitude * cosLat, leg.geometry[i + 1].latitude
-                                        )
-                                        if (d < closestDistSq) {
-                                            closestDistSq = d
-                                            closestLegIndex = legIndex
-                                        }
-                                    }
-                                }
-                            }
-                            viewModel.selectLeg(if (closestDistSq <= thresholdSq) closestLegIndex else null)
+                            val legIndex = findClosestBikeLegIndex(
+                                itinerary, clickPoint.latitude(), clickPoint.longitude(), thresholdSq
+                            )
+                            viewModel.selectLeg(legIndex)
                         }
                     }
                     true
@@ -277,8 +249,6 @@ fun MapScreen(
                         enabled = hasLocationPermission.value
                         pulsingEnabled = hasLocationPermission.value
                     }
-                }
-                MapEffect(hasLocationPermission.value) { mapView ->
                     if (hasLocationPermission.value) {
                         mapView.location.addOnIndicatorPositionChangedListener { point ->
                             viewModel.onUserLocationChanged(
@@ -416,23 +386,48 @@ fun MapScreen(
     }
 }
 
-private fun pointToSegmentDistSq(
-    px: Double, py: Double,
-    x1: Double, y1: Double,
-    x2: Double, y2: Double
+/** Convert a pixel offset to a squared geographic threshold in degrees. */
+private fun geographicThresholdSq(
+    map: MapboxMap,
+    tapScreen: com.mapbox.maps.ScreenCoordinate,
+    tapLat: Double,
+    pixelOffset: Double
 ): Double {
-    val dx = x2 - x1
-    val dy = y2 - y1
-    if (dx == 0.0 && dy == 0.0) {
-        val ddx = px - x1
-        val ddy = py - y1
-        return ddx * ddx + ddy * ddy
+    val offsetPoint = map.coordinateForPixel(
+        com.mapbox.maps.ScreenCoordinate(tapScreen.x, tapScreen.y - pixelOffset)
+    )
+    val thresholdDeg = Math.abs(offsetPoint.latitude() - tapLat)
+    return thresholdDeg * thresholdDeg
+}
+
+/**
+ * Return the index of the closest BICYCLE leg whose geometry falls within
+ * [thresholdSq] (squared degrees) of the tap point, or null if none qualifies.
+ */
+private fun findClosestBikeLegIndex(
+    itinerary: com.skilift.app.domain.model.Itinerary,
+    tapLat: Double,
+    tapLng: Double,
+    thresholdSq: Double
+): Int? {
+    val cosLat = Math.cos(Math.toRadians(tapLat))
+    var closestLegIndex: Int? = null
+    var closestDistSq = Double.MAX_VALUE
+
+    itinerary.legs.forEachIndexed { legIndex, leg ->
+        if (leg.mode == TransportMode.BICYCLE && leg.geometry.size >= 2) {
+            for (i in 0 until leg.geometry.size - 1) {
+                val d = GeometryUtils.pointToSegmentDistSq(
+                    tapLng * cosLat, tapLat,
+                    leg.geometry[i].longitude * cosLat, leg.geometry[i].latitude,
+                    leg.geometry[i + 1].longitude * cosLat, leg.geometry[i + 1].latitude
+                )
+                if (d < closestDistSq) {
+                    closestDistSq = d
+                    closestLegIndex = legIndex
+                }
+            }
+        }
     }
-    val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
-    val tc = t.coerceIn(0.0, 1.0)
-    val projX = x1 + tc * dx
-    val projY = y1 + tc * dy
-    val ddx = px - projX
-    val ddy = py - projY
-    return ddx * ddx + ddy * ddy
+    return if (closestDistSq <= thresholdSq) closestLegIndex else null
 }

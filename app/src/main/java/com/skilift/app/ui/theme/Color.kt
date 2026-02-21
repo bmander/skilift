@@ -10,6 +10,7 @@ val TransitBlue = Color(0xFF2196F3)
 val RailPurple = Color(0xFF9C27B0)
 val WalkGray = Color(0xFF9E9E9E)
 val FerryTeal = Color(0xFF009688)
+val DestinationRed = Color(0xFFD32F2F)
 
 val White = Color(0xFFFFFFFF)
 val Surface = Color(0xFFFAFAFA)
