@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.max
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mapbox.geojson.Point
+import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.extension.compose.MapEffect
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
@@ -108,6 +109,20 @@ fun MapScreen(
         setCameraOptions {
             center(Point.fromLngLat(MapViewModel.CENTER_LONGITUDE, MapViewModel.CENTER_LATITUDE))
             zoom(12.0)
+        }
+    }
+
+    var hasInitiallyLocated by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.userLocation) {
+        val loc = uiState.userLocation
+        if (loc != null && !hasInitiallyLocated) {
+            mapViewportState.flyTo(
+                CameraOptions.Builder()
+                    .center(Point.fromLngLat(loc.longitude, loc.latitude))
+                    .zoom(14.0)
+                    .build()
+            )
+            hasInitiallyLocated = true
         }
     }
 
