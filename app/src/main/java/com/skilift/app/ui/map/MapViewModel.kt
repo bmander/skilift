@@ -43,7 +43,8 @@ data class MapUiState(
     val destinationIsCurrentLocation: Boolean = false,
     val isPuckMenu: Boolean = false,
     val timeSelection: TimeSelection = TimeSelection.DepartNow,
-    val showTimePicker: Boolean = false
+    val showTimePicker: Boolean = false,
+    val selectedLegIndex: Int? = null
 )
 
 @HiltViewModel
@@ -193,7 +194,11 @@ class MapViewModel @Inject constructor(
     }
 
     fun selectItinerary(index: Int) {
-        _uiState.update { it.copy(selectedItineraryIndex = index) }
+        _uiState.update { it.copy(selectedItineraryIndex = index, selectedLegIndex = null) }
+    }
+
+    fun selectLeg(index: Int?) {
+        _uiState.update { it.copy(selectedLegIndex = index) }
     }
 
     fun prepareForDetails(index: Int) {
@@ -287,6 +292,7 @@ class MapViewModel @Inject constructor(
                     it.copy(
                         itineraries = itineraries,
                         selectedItineraryIndex = 0,
+                        selectedLegIndex = null,
                         isLoading = false
                     )
                 }

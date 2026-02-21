@@ -86,7 +86,6 @@ import com.skilift.app.ui.map.components.BikeTriangleWidget
 import com.skilift.app.ui.map.components.ElevationProfileChart
 import com.skilift.app.ui.map.components.LocationInputBar
 import com.skilift.app.ui.map.components.TimePickerOverlay
-import com.skilift.app.ui.map.components.hasBikingElevationData
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -338,6 +337,39 @@ fun MapScreen(
                                 return@OnMapClickListener true
                             }
                         }
+
+                        // Check if tap is near a bike route segment
+                        val map = mapboxMap
+                        if (map != null && uiState.itineraries.isNotEmpty()) {
+                            val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
+                            val tapScreen = map.pixelForCoordinate(clickPoint)
+                            val tapX = tapScreen.x
+                            val tapY = tapScreen.y
+                            val thresholdSq = 30.0 * 30.0
+
+                            var closestLegIndex: Int? = null
+                            var closestDistSq = Double.MAX_VALUE
+
+                            selectedItinerary.legs.forEachIndexed { legIndex, leg ->
+                                if (leg.mode == TransportMode.BICYCLE && leg.geometry.size >= 2) {
+                                    for (i in 0 until leg.geometry.size - 1) {
+                                        val p1 = map.pixelForCoordinate(
+                                            Point.fromLngLat(leg.geometry[i].longitude, leg.geometry[i].latitude)
+                                        )
+                                        val p2 = map.pixelForCoordinate(
+                                            Point.fromLngLat(leg.geometry[i + 1].longitude, leg.geometry[i + 1].latitude)
+                                        )
+                                        val d = pointToSegmentDistSq(tapX, tapY, p1.x, p1.y, p2.x, p2.y)
+                                        if (d < closestDistSq) {
+                                            closestDistSq = d
+                                            closestLegIndex = legIndex
+                                        }
+                                    }
+                                }
+                            }
+
+                            viewModel.selectLeg(if (closestDistSq <= thresholdSq) closestLegIndex else null)
+                        }
                     }
                     true
                 },
@@ -446,15 +478,20 @@ fun MapScreen(
                 // Route polylines
                 if (uiState.itineraries.isNotEmpty()) {
                     val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
-                    selectedItinerary.legs.forEach { leg ->
+                    selectedItinerary.legs.forEachIndexed { legIndex, leg ->
                         if (leg.geometry.isNotEmpty()) {
+                            val isSelectedBikeLeg = leg.mode == TransportMode.BICYCLE && legIndex == uiState.selectedLegIndex
                             PolylineAnnotation(
                                 points = leg.geometry.map {
                                     Point.fromLngLat(it.longitude, it.latitude)
                                 }
                             ) {
                                 lineColor = colorForMode(leg.mode)
-                                lineWidth = if (leg.mode == TransportMode.BICYCLE || leg.mode == TransportMode.WALK) 3.0 else 5.0
+                                lineWidth = when {
+                                    isSelectedBikeLeg -> 6.0
+                                    leg.mode == TransportMode.BICYCLE || leg.mode == TransportMode.WALK -> 3.0
+                                    else -> 5.0
+                                }
                             }
                         }
                     }
@@ -580,8 +617,9 @@ fun MapScreen(
 
                 if (uiState.itineraries.isNotEmpty()) {
                     val selectedItinerary = uiState.itineraries[uiState.selectedItineraryIndex]
-                    if (selectedItinerary.hasBikingElevationData()) {
-                        ElevationProfileChart(itinerary = selectedItinerary)
+                    val selectedLeg = uiState.selectedLegIndex?.let { selectedItinerary.legs.getOrNull(it) }
+                    if (selectedLeg != null && selectedLeg.mode == TransportMode.BICYCLE && selectedLeg.elevationProfile.isNotEmpty()) {
+                        ElevationProfileChart(leg = selectedLeg)
                     }
 
                     ItineraryCards(
@@ -677,4 +715,25 @@ private fun modeEmoji(mode: TransportMode): String = when (mode) {
     TransportMode.TRAM -> "\uD83D\uDE8A"
     TransportMode.FERRY -> "\u26F4"
     TransportMode.WALK -> "\uD83D\uDEB6"
+}
+
+private fun pointToSegmentDistSq(
+    px: Double, py: Double,
+    x1: Double, y1: Double,
+    x2: Double, y2: Double
+): Double {
+    val dx = x2 - x1
+    val dy = y2 - y1
+    if (dx == 0.0 && dy == 0.0) {
+        val ddx = px - x1
+        val ddy = py - y1
+        return ddx * ddx + ddy * ddy
+    }
+    val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    val tc = t.coerceIn(0.0, 1.0)
+    val projX = x1 + tc * dx
+    val projY = y1 + tc * dy
+    val ddx = px - projX
+    val ddy = py - projY
+    return ddx * ddx + ddy * ddy
 }
