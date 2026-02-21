@@ -44,12 +44,7 @@ import androidx.compose.ui.unit.max
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mapbox.geojson.Point
-import com.mapbox.maps.CameraOptions
-import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.extension.compose.MapEffect
-import com.mapbox.maps.plugin.viewport.data.DefaultViewportTransitionOptions
-import com.mapbox.maps.plugin.viewport.data.OverviewViewportStateOptions
-import kotlinx.coroutines.delay
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
 import com.mapbox.maps.extension.compose.style.standard.MapboxStandardStyle
@@ -59,6 +54,7 @@ import com.mapbox.maps.plugin.gestures.OnMapLongClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlin.math.sqrt
 import com.skilift.app.domain.model.TransportMode
+import com.skilift.app.ui.map.components.MapCameraEffects
 import com.skilift.app.ui.map.components.GeocoderSearchOverlay
 import com.skilift.app.ui.map.components.LocationInputBar
 import com.skilift.app.ui.map.components.MapContextMenu
@@ -117,9 +113,6 @@ fun MapScreen(
         }
     }
 
-    // Center on current location (no animation) on first fix
-    var hasInitiallyLocated by remember { mutableStateOf(false) }
-
     val selectedItinerary = uiState.itineraries.getOrNull(uiState.selectedItineraryIndex)
 
     BottomSheetScaffold(
@@ -165,28 +158,13 @@ fun MapScreen(
             val inputBarHeightDp = with(density) { inputBarHeightPx.intValue.toDp() }
             val fabBottomPadding = statusBarPadding + 8.dp + inputBarHeightDp + 8.dp + with(density) { fabHeightPx.intValue.toDp() } + 8.dp
 
-            // Fly to route bounds when itineraries arrive or selection changes
-            val statusBarPx = with(density) { statusBarPadding.toPx() }
-            LaunchedEffect(selectedItinerary) {
-                if (selectedItinerary != null) {
-                    val allPoints = selectedItinerary.legs
-                        .flatMap { it.geometry }
-                        .map { Point.fromLngLat(it.longitude, it.latitude) }
-                    if (allPoints.isNotEmpty()) {
-                        delay(100)
-                        val topPad = (statusBarPx + inputBarHeightPx.intValue + 24).toDouble()
-                        mapViewportState.transitionToOverviewState(
-                            overviewViewportStateOptions = OverviewViewportStateOptions.Builder()
-                                .geometry(com.mapbox.geojson.MultiPoint.fromLngLats(allPoints))
-                                .padding(EdgeInsets(topPad, 100.0, 400.0, 100.0))
-                                .build(),
-                            defaultTransitionOptions = DefaultViewportTransitionOptions.Builder()
-                                .maxDurationMs(1500L)
-                                .build()
-                        )
-                    }
-                }
-            }
+            val topInsetPx = with(density) { (statusBarPadding + 8.dp).toPx() } + inputBarHeightPx.intValue
+            MapCameraEffects(
+                mapViewportState = mapViewportState,
+                userLocation = uiState.userLocation,
+                selectedItinerary = selectedItinerary,
+                topInsetPx = topInsetPx.toDouble(),
+            )
 
             var menuScreenX by remember { mutableStateOf(0f) }
             var menuScreenY by remember { mutableStateOf(0f) }
@@ -303,13 +281,6 @@ fun MapScreen(
                             viewModel.onUserLocationChanged(
                                 com.skilift.app.domain.model.LatLng(point.latitude(), point.longitude())
                             )
-                            if (!hasInitiallyLocated) {
-                                hasInitiallyLocated = true
-                                mapViewportState.setCameraOptions {
-                                    center(Point.fromLngLat(point.longitude(), point.latitude()))
-                                    zoom(14.0)
-                                }
-                            }
                         }
                     }
                 }
