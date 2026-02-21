@@ -1,6 +1,7 @@
 package com.skilift.app.ui.map.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,20 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -32,10 +29,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.skilift.app.domain.model.TimeSelection
 import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -64,9 +61,7 @@ fun TimePickerOverlay(
         Instant.ofEpochMilli(existingMillis), ZoneId.systemDefault()
     )
 
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = existingMillis
-    )
+    var selectedDate by remember { mutableStateOf(existingZdt.toLocalDate()) }
     val timePickerState = rememberTimePickerState(
         initialHour = existingZdt.hour,
         initialMinute = existingZdt.minute
@@ -81,7 +76,6 @@ fun TimePickerOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -110,28 +104,43 @@ fun TimePickerOverlay(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // "Now" chip (only available for Depart mode)
+            // "Now" switch (only available for Depart mode)
             if (modeIndex == 0) {
-                FilterChip(
-                    selected = isNow,
-                    onClick = { isNow = !isNow },
-                    label = { Text("Now") }
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Now",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isNow,
+                        onCheckedChange = { isNow = it }
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            if (!isNow) {
-                DatePicker(
-                    state = datePickerState,
-                    title = null,
-                    headline = null,
-                    showModeToggle = false,
-                    modifier = Modifier.fillMaxWidth()
+            DateSpinner(
+                date = selectedDate,
+                onDateChange = { selectedDate = it },
+                enabled = !isNow,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Box {
+                TimePicker(
+                    state = timePickerState,
+                    modifier = Modifier.alpha(if (isNow) 0.38f else 1f)
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                TimePicker(state = timePickerState)
+                if (isNow) {
+                    // Invisible overlay to block touch interaction
+                    Box(modifier = Modifier.matchParentSize())
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -149,11 +158,6 @@ fun TimePickerOverlay(
                     if (isNow && modeIndex == 0) {
                         onConfirm(TimeSelection.DepartNow)
                     } else {
-                        val selectedDateMillis = datePickerState.selectedDateMillis
-                            ?: System.currentTimeMillis()
-                        val selectedDate = Instant.ofEpochMilli(selectedDateMillis)
-                            .atZone(ZoneId.of("UTC"))
-                            .toLocalDate()
                         val selectedTime = LocalTime.of(
                             timePickerState.hour, timePickerState.minute
                         )
