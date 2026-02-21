@@ -55,6 +55,7 @@ import com.mapbox.maps.plugin.locationcomponent.location
 import kotlin.math.sqrt
 import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.TransportMode
+import com.skilift.app.util.GeometryUtils
 import com.skilift.app.ui.map.components.MapCameraEffects
 import com.skilift.app.ui.map.components.GeocoderSearchOverlay
 import com.skilift.app.ui.map.components.LocationInputBar
@@ -373,7 +374,15 @@ fun MapScreen(
                 selectedItineraryIndex = uiState.selectedItineraryIndex,
                 selectedLegIndex = uiState.selectedLegIndex,
                 onSelectItinerary = { viewModel.selectItinerary(it) },
-                onElevationPositionSelected = { elevationCursorPosition = it },
+                onElevationPositionSelected = { fraction ->
+                    elevationCursorPosition = fraction?.let {
+                        val leg = uiState.selectedLegIndex?.let { idx ->
+                            uiState.itineraries.getOrNull(uiState.selectedItineraryIndex)
+                                ?.legs?.getOrNull(idx)
+                        }
+                        leg?.let { GeometryUtils.interpolateOnGeometry(it.geometry, fraction.toDouble()) }
+                    }
+                },
                 onItineraryDetails = {
                     viewModel.prepareForDetails(it)
                     onItinerarySelected(it)

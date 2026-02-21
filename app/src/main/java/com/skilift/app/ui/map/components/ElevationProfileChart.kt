@@ -31,21 +31,18 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.skilift.app.domain.model.LatLng
 import com.skilift.app.domain.model.Leg
+import com.skilift.app.ui.theme.BikeGreen
 import java.util.Locale
-import kotlin.math.cos
-import kotlin.math.sqrt
 
 private const val METERS_PER_FOOT = 0.3048
 private const val METERS_PER_MILE = 1609.344
-private const val EARTH_RADIUS_METERS = 6_371_000.0
 
 @Composable
 fun ElevationProfileChart(
     leg: Leg,
     modifier: Modifier = Modifier,
-    onPositionSelected: (LatLng?) -> Unit = {}
+    onFractionSelected: (Float?) -> Unit = {}
 ) {
     val points = leg.elevationProfile
     if (points.isEmpty()) return
@@ -55,8 +52,7 @@ fun ElevationProfileChart(
     val elevRange = (maxElev - minElev).coerceAtLeast(1.0)
     val totalDist = points.last().distanceMeters
 
-    val green = Color(0xFF4CAF50)
-    val greenFill = green.copy(alpha = 0.30f)
+    val greenFill = BikeGreen.copy(alpha = 0.30f)
     val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
 
     val useImperial = isImperialLocale()
@@ -106,18 +102,16 @@ fun ElevationProfileChart(
                                 val leftPad = 36.dp.toPx()
                                 val chartWidth = size.width - leftPad
                                 if (chartWidth > 0f) {
-                                    val fraction = ((change.position.x - leftPad) / chartWidth).coerceIn(0f, 1f).toDouble()
-                                    val dist = fraction * totalDist
-                                    onPositionSelected(interpolateOnGeometry(leg.geometry, dist, totalDist))
+                                    onFractionSelected(fractionAtX(change.position.x, leftPad, chartWidth))
                                 }
                             },
                             onDragEnd = {
                                 touchX = Float.NaN
-                                onPositionSelected(null)
+                                onFractionSelected(null)
                             },
                             onDragCancel = {
                                 touchX = Float.NaN
-                                onPositionSelected(null)
+                                onFractionSelected(null)
                             }
                         )
                     }
@@ -128,13 +122,11 @@ fun ElevationProfileChart(
                                 val leftPad = 36.dp.toPx()
                                 val chartWidth = size.width - leftPad
                                 if (chartWidth > 0f) {
-                                    val fraction = ((offset.x - leftPad) / chartWidth).coerceIn(0f, 1f).toDouble()
-                                    val dist = fraction * totalDist
-                                    onPositionSelected(interpolateOnGeometry(leg.geometry, dist, totalDist))
+                                    onFractionSelected(fractionAtX(offset.x, leftPad, chartWidth))
                                 }
                                 tryAwaitRelease()
                                 touchX = Float.NaN
-                                onPositionSelected(null)
+                                onFractionSelected(null)
                             }
                         )
                     }
@@ -175,7 +167,7 @@ fun ElevationProfileChart(
                 }
 
                 drawPath(fillPath, greenFill, style = Fill)
-                drawPath(linePath, green, style = Stroke(width = 2.dp.toPx()))
+                drawPath(linePath, BikeGreen, style = Stroke(width = 2.dp.toPx()))
 
                 val measuredLabel = textMeasurer.measure(distLabel, distLabelStyle)
                 drawText(
@@ -201,50 +193,9 @@ fun ElevationProfileChart(
     }
 }
 
-/**
- * Interpolate a position along a geometry polyline at the given distance.
- * Uses [totalRouteDistance] (from the elevation profile) as the total length
- * to keep fractions consistent with the chart.
- */
-private fun interpolateOnGeometry(geometry: List<LatLng>, targetDistance: Double, totalRouteDistance: Double): LatLng? {
-    if (geometry.isEmpty()) return null
-    if (geometry.size == 1) return geometry[0]
-    if (totalRouteDistance <= 0) return geometry[0]
-
-    // Compute cumulative segment distances along the geometry
-    val segDistances = DoubleArray(geometry.size - 1)
-    var geomTotal = 0.0
-    for (i in 1 until geometry.size) {
-        val d = approxDistanceMeters(geometry[i - 1], geometry[i])
-        segDistances[i - 1] = d
-        geomTotal += d
-    }
-
-    // Scale target distance to geometry's own total length
-    val scaledTarget = if (geomTotal > 0) targetDistance / totalRouteDistance * geomTotal else 0.0
-
-    var cumulative = 0.0
-    for (i in segDistances.indices) {
-        val segLen = segDistances[i]
-        if (cumulative + segLen >= scaledTarget) {
-            val remaining = scaledTarget - cumulative
-            val fraction = if (segLen > 0) remaining / segLen else 0.0
-            return LatLng(
-                latitude = geometry[i].latitude + fraction * (geometry[i + 1].latitude - geometry[i].latitude),
-                longitude = geometry[i].longitude + fraction * (geometry[i + 1].longitude - geometry[i].longitude)
-            )
-        }
-        cumulative += segLen
-    }
-    return geometry.last()
-}
-
-private fun approxDistanceMeters(a: LatLng, b: LatLng): Double {
-    val latMid = Math.toRadians((a.latitude + b.latitude) / 2.0)
-    val dx = Math.toRadians(b.longitude - a.longitude) * cos(latMid) * EARTH_RADIUS_METERS
-    val dy = Math.toRadians(b.latitude - a.latitude) * EARTH_RADIUS_METERS
-    return sqrt(dx * dx + dy * dy)
-}
+/** Convert a raw x pixel to a 0.0–1.0 fraction across the chart drawing area. */
+private fun fractionAtX(x: Float, leftPad: Float, chartWidth: Float): Float =
+    ((x - leftPad) / chartWidth).coerceIn(0f, 1f)
 
 @Composable
 private fun isImperialLocale(): Boolean {
