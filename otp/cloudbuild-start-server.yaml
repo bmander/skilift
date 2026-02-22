@@ -1,5 +1,14 @@
 steps:
-  # Step 1: Download the pre-built graph and config from GCS to the VM
+  # Step 1: Upload runtime config files from repo to GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - '-m'
+      - 'cp'
+      - 'otp/otp-config.json'
+      - 'otp/router-config.json'
+      - 'gs://skilift-otp-data/'
+
+  # Step 2: Download the pre-built graph from GCS and copy configs from repo to the VM
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -7,9 +16,13 @@ steps:
       - |
         gcloud compute ssh skilift-otp \
           --zone=us-west1-b \
-          --command='mkdir -p $$HOME/skilift/otp/data && gsutil -m cp gs://skilift-otp-data/graph.obj gs://skilift-otp-data/otp-config.json gs://skilift-otp-data/router-config.json $$HOME/skilift/otp/data/'
+          --command='mkdir -p $$HOME/skilift/otp/data && gsutil cp gs://skilift-otp-data/graph.obj $$HOME/skilift/otp/data/'
+        gcloud compute scp \
+          otp/otp-config.json otp/router-config.json \
+          skilift-otp:~/skilift/otp/data/ \
+          --zone=us-west1-b
 
-  # Step 2: Configure Docker on the VM to pull from Artifact Registry, then pull the image
+  # Step 3: Configure Docker on the VM to pull from Artifact Registry, then pull the image
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -19,7 +32,7 @@ steps:
           --zone=us-west1-b \
           --command='sudo gcloud auth configure-docker us-west1-docker.pkg.dev --quiet && sudo docker pull us-west1-docker.pkg.dev/skilift-450102/otp/opentripplanner:latest'
 
-  # Step 3: Stop and remove the old OTP server container
+  # Step 4: Stop and remove the old OTP server container
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -29,7 +42,7 @@ steps:
           --zone=us-west1-b \
           --command='sudo docker stop otp-server 2>/dev/null; sudo docker rm otp-server 2>/dev/null; true'
 
-  # Step 4: Start the new OTP server
+  # Step 5: Start the new OTP server
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:

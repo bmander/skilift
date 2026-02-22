@@ -136,16 +136,6 @@ steps:
         echo "Uploading source-metadata.json..."
         gsutil cp /workspace/source-metadata.json gs://skilift-otp-data/
 
-  # Step 4: Upload config files (always — keeps them in sync with git)
-  - name: 'gcr.io/cloud-builders/gsutil'
-    args:
-      - '-m'
-      - 'cp'
-      - 'otp/build-config.json'
-      - 'otp/otp-config.json'
-      - 'otp/router-config.json'
-      - 'gs://skilift-otp-data/'
-
 substitutions:
   _REGION_BBOX_WEST: '-122.5'
   _REGION_BBOX_SOUTH: '47.3'

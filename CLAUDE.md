@@ -79,14 +79,14 @@ Config files in `otp/`. Data sources: King County Metro GTFS, Sound Transit rail
 ### Deployment (three Cloud Build pipelines, run in order)
 
 ```bash
-# 1. Download/update source data (conditional, checks ETags)
+# 1. Download/update external source data (conditional, checks ETags)
 gcloud builds submit --config=otp/cloudbuild-prepare-data.yaml .
 
-# 2. Build graph (skips if inputs unchanged)
-gcloud builds submit --config=otp/cloudbuild-build-graph.yaml --no-source
+# 2. Build graph (uploads build-config.json from repo, skips if inputs unchanged)
+gcloud builds submit --config=otp/cloudbuild-build-graph.yaml .
 
-# 3. Start/restart server on VM
-gcloud builds submit --config=otp/cloudbuild-start-server.yaml --no-source
+# 3. Start/restart server on VM (uploads otp-config.json and router-config.json from repo)
+gcloud builds submit --config=otp/cloudbuild-start-server.yaml .
 ```
 
 The region bounding box is parameterized in `gradle.properties` (`REGION_BBOX_*`) and used by both the app (coverage validation) and Cloud Build (OSM clipping).

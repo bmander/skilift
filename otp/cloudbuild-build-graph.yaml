@@ -1,5 +1,12 @@
 steps:
-  # Step 1: Check if input files have changed since last graph build
+  # Step 1: Upload build-config.json from repo to GCS
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - 'cp'
+      - 'otp/build-config.json'
+      - 'gs://skilift-otp-data/'
+
+  # Step 2: Check if input files have changed since last graph build
   # Pass _FORCE_BUILD=true to skip this check (e.g. after OTP source changes)
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
@@ -35,7 +42,7 @@ steps:
           echo "$$CURRENT_HASH" > /workspace/current-hash.txt
         fi
 
-  # Step 2: Download source data, config, and elevation cache from GCS
+  # Step 3: Download source data and elevation cache from GCS; copy configs from repo
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
@@ -50,10 +57,8 @@ steps:
           gs://skilift-otp-data/st-gtfs.zip \
           gs://skilift-otp-data/seattle.osm.pbf \
           gs://skilift-otp-data/seattle-dem.tif \
-          gs://skilift-otp-data/build-config.json \
-          gs://skilift-otp-data/otp-config.json \
-          gs://skilift-otp-data/router-config.json \
           /otp-data/
+        cp /workspace/otp/build-config.json /workspace/otp/otp-config.json /workspace/otp/router-config.json /otp-data/
         mkdir -p /otp-cache
         gsutil cp gs://skilift-otp-data/cached_elevations.obj /otp-cache/ 2>/dev/null \
           && echo "Loaded elevation cache from GCS" \
@@ -64,7 +69,7 @@ steps:
       - name: 'otp-cache'
         path: '/otp-cache'
 
-  # Step 3: Build the OTP graph (skipped if inputs unchanged)
+  # Step 4: Build the OTP graph (skipped if inputs unchanged)
   - name: 'us-west1-docker.pkg.dev/skilift-450102/otp/opentripplanner:latest'
     entrypoint: 'bash'
     args:
@@ -83,7 +88,7 @@ steps:
       - name: 'otp-cache'
         path: '/var/otp/cache'
 
-  # Step 4: Upload the built graph, elevation cache, and updated hash to GCS
+  # Step 5: Upload the built graph, elevation cache, and updated hash to GCS
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
