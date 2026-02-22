@@ -49,7 +49,7 @@ MapScreen → MapViewModel → TripRepository → OtpGraphQlClient → OTP2 Grap
 - **`data/SelectedItineraryHolder`** — Hilt singleton bridging MapViewModel → TripDetailsViewModel (stores selected itinerary for navigation)
 - **`domain/model/`** — `Itinerary`, `Leg`, `Place`, `TransportMode`, `ElevationPoint`, `TripPreferences`
 - **`ui/map/`** — `MapScreen` (Mapbox map, itinerary cards, bottom sheet with controls), `MapViewModel` (trip search, slider mapping, coverage validation)
-- **`ui/map/components/`** — `BikeTriangleWidget`, `ElevationProfileChart`, `PreferenceSlider`
+- **`ui/map/components/`** — `BikeTriangleWidget`, `ElevationProfileChart`
 - **`ui/tripdetails/`** — `TripDetailsScreen` (leg-by-leg timeline with times, modes, distances)
 - **`ui/navigation/`** — `SkiliftNavGraph` (2 routes: `map`, `trip_details/{itineraryIndex}`)
 - **`util/PolylineDecoder`** — Decodes Google polyline encoding to `List<LatLng>`

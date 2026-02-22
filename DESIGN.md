@@ -111,13 +111,9 @@ com.skilift.app/
       MapScreen.kt
       MapViewModel.kt
       components/
-        PreferenceSlider.kt
     tripdetails/
       TripDetailsScreen.kt
       TripDetailsViewModel.kt
-    settings/
-      SettingsScreen.kt
-      SettingsViewModel.kt
     navigation/
       SkiliftNavGraph.kt
       Screen.kt
@@ -152,15 +148,6 @@ Shown when the user selects an itinerary. Contains:
   - Headsign for transit legs
   - Departure/arrival times and place names
 - **Back button** returns to the map with the route still displayed.
-
-### 3. Settings Screen
-
-Accessible from a gear icon on the Map Screen. Contains:
-
-- **Default bike/transit balance:** Slider matching the map screen slider, sets the default position.
-- **Cycling optimization:** Radio group (Quick / Safe Streets / Flat Streets).
-- **Max bike speed:** Slider (3.0-8.0 m/s) with mph conversion display.
-- **About section:** App version, map/routing/transit data attributions.
 
 ## GraphQL Query Structure
 
@@ -347,12 +334,6 @@ Material3 with a teal primary:
 
 ### Phase 5: Preferences & Polish -- DONE
 
-- [x] `SettingsViewModel` and `SettingsScreen` with:
-  - [x] Default bike/transit balance slider
-  - [x] Cycling optimization radio group (Quick / Safe Streets / Flat Streets)
-  - [x] Max bike speed slider (3.0-8.0 m/s with mph display)
-  - [x] About/attribution section
-- [x] `PreferenceSlider` reusable component
 - [x] `TripDetailsScreen` with itinerary header and `LegTimelineItem` composable
 - [x] `PolylineDecoder` utility
 
