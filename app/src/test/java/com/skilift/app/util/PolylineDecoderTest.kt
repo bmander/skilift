@@ -60,6 +60,14 @@ class PolylineDecoderTest {
         }
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun `decode truncated polyline throws IllegalArgumentException`() {
+        // Full polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" decodes to 3 points.
+        // Truncate mid-encoding so the last coordinate pair is incomplete.
+        val truncated = "_p~iF~ps|U_ulLnnqC_mqN"
+        PolylineDecoder.decode(truncated)
+    }
+
     private fun assertLatLngEquals(expected: LatLng, actual: LatLng) {
         assertEquals(expected.latitude, actual.latitude, 0.00001)
         assertEquals(expected.longitude, actual.longitude, 0.00001)
