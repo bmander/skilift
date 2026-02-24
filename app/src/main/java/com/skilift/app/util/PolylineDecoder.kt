@@ -15,6 +15,7 @@ object PolylineDecoder {
             var shift = 0
             var result = 0
             do {
+                if (index >= len) throw IllegalArgumentException("Truncated polyline encoding")
                 b = encoded[index++].code - 63
                 result = result or (b and 0x1f shl shift)
                 shift += 5
@@ -25,6 +26,7 @@ object PolylineDecoder {
             shift = 0
             result = 0
             do {
+                if (index >= len) throw IllegalArgumentException("Truncated polyline encoding")
                 b = encoded[index++].code - 63
                 result = result or (b and 0x1f shl shift)
                 shift += 5
